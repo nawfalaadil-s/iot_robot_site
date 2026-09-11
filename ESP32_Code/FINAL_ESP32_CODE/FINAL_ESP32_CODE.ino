@@ -1,7 +1,7 @@
 /*
  * =========================================================================
  * IoT-Enabled AI Autonomous Industrial Monitoring & Inspection Robot
- * FINAL v5.0 - LIVE BACKEND + FULL-SPEED DIGITAL DRIVE
+ * FINAL v5.3 - LIVE BACKEND + FULL-SPEED DIGITAL DRIVE (watchdog-safe)
  * =========================================================================
  *
  * Backend:   Netlify Functions + Netlify Blobs (real-time data storage)
@@ -21,7 +21,7 @@
  * ✅ OTA Updates
  * ✅ Watchdog Timer
  *
- * Version: 5.2 FINAL (SD, ESP32-CAM & battery monitoring removed - not used)
+ * Version: 5.3 FINAL (SD, ESP32-CAM & battery removed; watchdog-safe non-blocking loop)
  * Date: September 9, 2026
  * Tested: ESP32 Arduino Core 3.x
  * =========================================================================
@@ -177,6 +177,15 @@ void pwmTick() {
   applyWheel(IN3, IN4, currentSpeedRight);
   pwmStep = (pwmStep + 1) % PWM_STEPS;
   delayMicroseconds(PWM_STEP_US);
+
+  // Every 10 steps (~10 ms) hand CPU time back to the FreeRTOS scheduler so
+  // idle/other tasks keep running — prevents task starvation and keeps the
+  // watchdog system healthy while the soft-PWM busy-waits between steps.
+  static uint8_t tickCount = 0;
+  if (++tickCount >= 10) {
+    tickCount = 0;
+    vTaskDelay(1);
+  }
 }
 
 // Non-blocking delay that keeps the motors PWM-ed (used instead of delay())
@@ -453,73 +462,126 @@ bool detectAnomalies(SensorData data, Machine* machine) {
 }
 
 // =========================================================================
-// 🔍 INSPECTION ROUTINE
+// 🔍 INSPECTION ROUTINE — NON-BLOCKING STATE MACHINE
+// The old version blocked loop() for 15 s (freezing Bluetooth, OTA and the
+// watchdog feed). Now loop() returns every ~1 ms during inspection, so the
+// watchdog can never starve and emergency stop keeps working.
 // =========================================================================
 
-void performInspection(Machine* machine) {
+Machine* inspectionMachine = nullptr;    // machine currently being inspected
+bool inspectionActive = false;           // true while an inspection is running
+bool inspectionIntroDone = false;        // intro (LED blink + tones) finished
+bool inspectionTone2Fired = false;       // second intro tone fired
+unsigned long inspectionPhaseStart = 0;  // intro phase start time
+unsigned long inspectionLastSample = 0;  // last sensor sample time
+int inspectionSamples = 0;               // number of samples taken
+float insTempSum = 0, insHumSum = 0, insGasSum = 0, insDistSum = 0;
+unsigned long pendingToneAt = 0;         // scheduled delayed chime (non-blocking)
+
+void startInspection(Machine* machine) {
+  if (inspectionActive || machine == nullptr) return;
+
+  inspectionMachine = machine;
+  inspectionActive = true;
+  inspectionIntroDone = false;
+  inspectionTone2Fired = false;
+  inspectionPhaseStart = millis();
+  inspectionLastSample = 0;
+  inspectionSamples = 0;
+  insTempSum = 0;
+  insHumSum = 0;
+  insGasSum = 0;
+  insDistSum = 0;
+
   Serial.println("\n========================================");
   Serial.println("[INSPECTION] " + machine->name);
   Serial.println("========================================");
-  
+
   stopMotors();
-  
-  for (int i = 0; i < 5; i++) {
-    digitalWrite(STATUS_LED, !digitalRead(STATUS_LED));
-    delay(100);
-  }
-  
-  tone(BUZZER_PIN, 1800, 200);
-  delay(300);
-  tone(BUZZER_PIN, 2000, 200);
-  
-  inspectionStartTime = millis();
-  int sampleCount = 0;
-  float tempSum = 0, gasSum = 0, humiditySum = 0, distanceSum = 0;
-  
-  while (millis() - inspectionStartTime < INSPECTION_DURATION) {
-    readAllSensors();
-    
-    tempSum += currentReading.temperature;
-    gasSum += currentReading.gasLevel;
-    humiditySum += currentReading.humidity;
-    distanceSum += currentReading.distance;
-    sampleCount++;
-    
-    if (detectAnomalies(currentReading, machine)) {
-      machine->hasAlert = true;
-    }
-    
-    esp_task_wdt_reset();
-    delay(1000);
-  }
-  
-  float avgTemp = tempSum / sampleCount;
-  float avgGas = gasSum / sampleCount;
-  float avgHumidity = humiditySum / sampleCount;
-  float avgDistance = distanceSum / sampleCount;
-  
+  tone(BUZZER_PIN, 1800, 200);   // non-blocking (LEDC timer)
+}
+
+void finishInspection() {
+  Machine* machine = inspectionMachine;
+
+  int sampleCount = (inspectionSamples > 0) ? inspectionSamples : 1;  // no divide-by-zero
+  float avgTemp = insTempSum / sampleCount;
+  float avgGas = insGasSum / sampleCount;
+  float avgHumidity = insHumSum / sampleCount;
+  float avgDistance = insDistSum / sampleCount;
+
   machine->inspectionCount++;
   machine->lastInspection = millis();
   machine->avgTemperature = (machine->avgTemperature + avgTemp) / 2.0;
   machine->avgGasLevel = (machine->avgGasLevel + avgGas) / 2.0;
-  
+
   sendInspectionData(machine, avgTemp, avgHumidity, avgGas, avgDistance);
-  
+
   Serial.println("[INSPECTION] Complete");
   Serial.println("  Temp: " + String(avgTemp) + "C");
   Serial.println("  Gas: " + String(avgGas) + " PPM");
   Serial.print("  Alert: ");
   Serial.println(machine->hasAlert ? "YES" : "NO");
   Serial.println("========================================\n");
-  
+
   totalInspections++;
   stats.inspectionsCompleted++;
-  
+
   tone(BUZZER_PIN, 2200, 150);
-  delay(200);
-  tone(BUZZER_PIN, 2500, 150);
-  
+  pendingToneAt = millis() + 200;   // second chime tone is fired from loop()
+
+  // Release the robot back to patrol
+  inspectionActive = false;
+  inspectionMachine = nullptr;
+  currentMachine = nullptr;
+  lastDetectedMachineIndex = -1;
   currentMode = MODE_AUTO_LINE_FOLLOW;
+}
+
+// Called from loop() every iteration while MODE_INSPECTION is active.
+// Never blocks longer than a few milliseconds.
+void runInspectionStep() {
+  if (!inspectionActive || inspectionMachine == nullptr) return;
+  unsigned long elapsed = millis() - inspectionPhaseStart;
+
+  // ---- Phase 1: intro (0–600 ms): blink LED + two start tones ----
+  if (!inspectionIntroDone) {
+    digitalWrite(STATUS_LED, ((elapsed / 100) % 2) == 0 ? HIGH : LOW);
+
+    if (elapsed >= 300 && !inspectionTone2Fired) {
+      inspectionTone2Fired = true;
+      tone(BUZZER_PIN, 2000, 200);
+    }
+
+    if (elapsed >= 600) {
+      inspectionIntroDone = true;
+      digitalWrite(STATUS_LED, HIGH);
+      inspectionStartTime = millis();    // sampling window starts now
+      inspectionLastSample = 0;
+    }
+    return;
+  }
+
+  // ---- Phase 2: one sensor sample per second for INSPECTION_DURATION ----
+  if (millis() - inspectionStartTime >= INSPECTION_DURATION) {
+    finishInspection();
+    return;
+  }
+
+  if (inspectionLastSample == 0 || millis() - inspectionLastSample >= 1000) {
+    inspectionLastSample = millis();
+    readAllSensors();
+
+    insTempSum += currentReading.temperature;
+    insHumSum += currentReading.humidity;
+    insGasSum += currentReading.gasLevel;
+    insDistSum += currentReading.distance;
+    inspectionSamples++;
+
+    if (detectAnomalies(currentReading, inspectionMachine)) {
+      inspectionMachine->hasAlert = true;
+    }
+  }
 }
 
 // =========================================================================
@@ -561,8 +623,12 @@ void sendInspectionData(Machine* machine, float temp, float humidity, float gas,
   Serial.println("[IoT] Sending to dashboard...");
   
   http.begin(inspectionEndpoint());
+  http.setConnectTimeout(3000);   // bound the connection attempt (3 s)
+  http.setTimeout(5000);          // bound the response wait (5 s)
   http.addHeader("Content-Type", "application/json");
+  esp_task_wdt_reset();           // feed WDT right before the blocking POST
   int httpCode = http.POST(jsonString);
+  esp_task_wdt_reset();           // feed WDT right after
   
   if (httpCode > 0) {
     Serial.println("[IoT] Response: " + String(httpCode));
@@ -609,8 +675,12 @@ void sendLiveData() {
   serializeJson(doc, jsonString);
   
   http.begin(liveEndpoint());
+  http.setConnectTimeout(3000);   // bound the connection attempt (3 s)
+  http.setTimeout(5000);          // bound the response wait (5 s)
   http.addHeader("Content-Type", "application/json");
+  esp_task_wdt_reset();           // feed WDT around the blocking POST
   http.POST(jsonString);
+  esp_task_wdt_reset();
   http.end();
 }
 
@@ -644,9 +714,14 @@ void handleBluetooth() {
     case 'R': case 'r': currentMode = MODE_MANUAL; turnRight(currentSpeed); break;
     case 'S': case 's': stopMotors(); break;
     case 'A': case 'a': currentMode = MODE_AUTO_LINE_FOLLOW; SerialBT.println("Autonomous ON"); break;
-    case 'M': case 'm': currentMode = MODE_MANUAL; stopMotors(); SerialBT.println("Manual ON"); break;
-    case 'I': case 'i': if (currentMachine) currentMode = MODE_INSPECTION; break;
-    case 'X': case 'x': stopMotors(); currentMode = MODE_IDLE; SerialBT.println("EMERGENCY STOP"); break;
+    case 'M': case 'm': stopMotors(); inspectionActive = false; inspectionMachine = nullptr; pendingToneAt = 0; currentMode = MODE_MANUAL; SerialBT.println("Manual ON"); break;
+    case 'I': case 'i':
+      if (currentMachine && !inspectionActive) {
+        startInspection(currentMachine);
+        currentMode = MODE_INSPECTION;
+      }
+      break;
+    case 'X': case 'x': stopMotors(); inspectionActive = false; inspectionMachine = nullptr; pendingToneAt = 0; currentMode = MODE_IDLE; SerialBT.println("EMERGENCY STOP"); break;
     case '1': currentSpeed = SPEED_SLOW; SerialBT.println("Speed: SLOW"); break;
     case '2': currentSpeed = SPEED_MEDIUM; SerialBT.println("Speed: MEDIUM"); break;
     case '3': currentSpeed = SPEED_FAST; SerialBT.println("Speed: FAST"); break;
@@ -704,19 +779,32 @@ void setup() {
   delay(1000);
   
   Serial.println("\n========================================");
-  Serial.println(" 🤖 INDUSTRIAL ROBOT v4.0 FINAL");
+  Serial.println(" 🤖 INDUSTRIAL ROBOT v5.3 FINAL");
   Serial.println("========================================");
   Serial.println(" Dashboard: " + String(DASHBOARD_URL));
   Serial.println("========================================");
   
-  // Watchdog
+  // Watchdog — ESP32 Arduino Core 3.x ALREADY initializes the TWDT and
+  // subscribes loopTask. Calling esp_task_wdt_init() again caused the
+  // "TWDT already initialized" warning (and our 30 s timeout was ignored,
+  // leaving the core default ~5 s). We therefore only RECONFIGURE the
+  // existing watchdog and make sure the current task is subscribed.
   esp_task_wdt_config_t wdt_config = {
-    .timeout_ms = WDT_TIMEOUT * 1000,
-    .idle_core_mask = (1 << 0) | (1 << 1),
-    .trigger_panic = true
+    .timeout_ms = WDT_TIMEOUT * 1000,   // 30 s
+    .idle_core_mask = 0,                // idle tasks not watched (loop yields via vTaskDelay)
+    .trigger_panic = true               // a genuine hang still reboots safely
   };
-  esp_task_wdt_init(&wdt_config);
-  esp_task_wdt_add(NULL);
+  if (esp_task_wdt_reconfigure(&wdt_config) == ESP_OK) {
+    Serial.println("[WDT] Active - timeout " + String(WDT_TIMEOUT) + " s");
+  } else {
+    Serial.println("[WDT] Keeping Arduino core default watchdog config");
+  }
+  if (esp_task_wdt_status(NULL) != ESP_OK) {
+    esp_task_wdt_add(NULL);   // subscribe loopTask only if not already subscribed
+    Serial.println("[WDT] loopTask subscribed");
+  } else {
+    Serial.println("[WDT] loopTask already watched by the core");
+  }
   
   stats.startTime = millis();
   
@@ -747,8 +835,8 @@ void setup() {
   WiFi.begin(ssid, password);
   
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    delay(500);
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {  // max ~5 s — well under the WDT
+    delay(250);
     Serial.print(".");
     attempts++;
     esp_task_wdt_reset();
@@ -804,7 +892,13 @@ void loop() {
   esp_task_wdt_reset();
   ArduinoOTA.handle();
   checkWiFi();             // auto-reconnect if WiFi drops
-  
+
+  // Fire the scheduled second completion chime (non-blocking)
+  if (pendingToneAt != 0 && millis() >= pendingToneAt) {
+    pendingToneAt = 0;
+    tone(BUZZER_PIN, 2500, 150);
+  }
+
   readAllSensors();        // rate-limited internally (500 ms)
   handleBluetooth();
   
@@ -828,7 +922,10 @@ void loop() {
       currentMachine = &machines[machineIndex];
       lastDetectedMachineIndex = machineIndex;
       Serial.println("[SYSTEM] Identified: " + currentMachine->name);
-      currentMode = MODE_INSPECTION;
+      if (!inspectionActive) {
+        startInspection(currentMachine);
+        currentMode = MODE_INSPECTION;
+      }
     }
   }
   
@@ -849,12 +946,7 @@ void loop() {
       break;
       
     case MODE_INSPECTION:
-      if (currentMachine) {
-        performInspection(currentMachine);
-        currentMachine = nullptr;
-        lastDetectedMachineIndex = -1;
-      }
-      currentMode = MODE_AUTO_LINE_FOLLOW;
+      runInspectionStep();   // non-blocking — returns control every loop iteration
       break;
       
     case MODE_MANUAL:
