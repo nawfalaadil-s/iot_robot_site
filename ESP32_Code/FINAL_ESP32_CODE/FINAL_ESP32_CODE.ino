@@ -15,21 +15,18 @@
  * ✅ Battery Monitoring & Protection
  * ✅ RFID Machine Identification (3 machines)
  * ✅ Multi-Sensor Monitoring (DHT11, MQ135, Ultrasonic, IR)
- * ✅ ESP32-CAM Integration
- * ✅ SD Card Data Logging
  * ✅ WiFi + Bluetooth Control
  * ✅ Real-time IoT to Netlify Dashboard
  * ✅ AI/ML Analytics Integration
  * ✅ Anomaly Detection
  * ✅ OTA Updates
  * ✅ Watchdog Timer
- * 
- * Version: 5.0 FINAL
+ *
+ * Version: 5.1 FINAL (SD card & ESP32-CAM removed - not used)
  * Date: September 9, 2026
  * Tested: ESP32 Arduino Core 3.x
  * =========================================================================
  */
-
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -39,11 +36,10 @@
 #include <MFRC522.h>
 #include <EEPROM.h>
 #include <time.h>
-#include <SD.h>
-#include <FS.h>
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 #include <esp_task_wdt.h>
+#include "robot_types.h"   // enums & structs — MUST be the LAST include (Arduino prototype fix)
 
 // =========================================================================
 // 📝 CONFIGURATION - CHANGE THESE FOR YOUR SETUP
@@ -54,7 +50,7 @@ const char* ssid = "robo";                    // Your WiFi name
 const char* password = "robo@123";            // Your WiFi password
 
 // Dashboard URL  ⚠️ CHANGE THIS to your own Netlify site URL after deploying!
-const char* DASHBOARD_URL = "https://YOUR-SITE.netlify.app";
+const char* DASHBOARD_URL = "https://iot-car.netlify.app/";
 
 // Backend endpoints (Netlify Functions - same origin as the dashboard)
 String inspectionEndpoint() { return String(DASHBOARD_URL) + "/api/inspection"; }
@@ -101,8 +97,6 @@ const char* hostname = "industrial-robot";
 // Other
 #define BUZZER_PIN 5
 #define STATUS_LED 2
-#define CAM_TRIGGER 16
-#define SD_CS 15
 
 // Software PWM Configuration (replaces hardware LEDC PWM - ENA/ENB are shorted)
 #define PWM_STEPS 10        // 10-step duty resolution (10% granularity)
@@ -116,80 +110,7 @@ DHT dht(DHTPIN, DHTTYPE);
 MFRC522 rfid(SS_PIN, RST_PIN);
 BluetoothSerial SerialBT;
 
-// Operating Modes
-enum RobotMode {
-  MODE_IDLE,
-  MODE_MANUAL,
-  MODE_AUTO_LINE_FOLLOW,
-  MODE_INSPECTION,
-  MODE_OBSTACLE_AVOID,
-  MODE_LOW_BATTERY
-};
-
-// Speed Profiles (software-PWM duty %, 100 = FULL SPEED)
-enum SpeedProfile {
-  SPEED_SLOW = 50,     // 50% duty
-  SPEED_MEDIUM = 75,   // 75% duty
-  SPEED_FAST = 100     // FULL SPEED (default)
-};
-
-// Sensor Data Structure
-struct SensorData {
-  float temperature;
-  float humidity;
-  int gasLevel;
-  float distance;
-  int leftIR;
-  int rightIR;
-  float batteryVoltage;
-  float batteryPercent;
-  unsigned long timestamp;
-} currentReading;
-
-// Machine Data Structure
-struct Machine {
-  String uid;
-  String name;
-  String location;
-  int inspectionCount;
-  unsigned long lastInspection;
-  float avgTemperature;
-  float avgGasLevel;
-  bool hasAlert;
-  String lastImagePath;
-  float maxTemp;
-  float minTemp;
-  int maxGas;
-};
-
-// PID Controller
-struct PIDController {
-  float kp = 25.0;
-  float ki = 0.0;
-  float kd = 15.0;
-  float lastError = 0;
-  float integral = 0;
-  float output = 0;
-} pidController;
-
-// Battery Configuration
-struct BatteryConfig {
-  float maxVoltage = 8.4;
-  float minVoltage = 6.4;
-  float lowBatteryThreshold = 6.8;
-  float criticalBatteryThreshold = 6.5;
-  float voltageDividerRatio = 2.0;
-} batteryConfig;
-
-// System Statistics
-struct SystemStats {
-  unsigned long totalDistance = 0;
-  unsigned long startTime = 0;
-  int obstaclesDetected = 0;
-  int lineDeviations = 0;
-  int alertsTriggered = 0;
-  int inspectionsCompleted = 0;
-} stats;
+// (Enums & structs moved to the robot_types.h tab — do not redefine here)
 
 // State Variables
 RobotMode currentMode = MODE_IDLE;
@@ -225,8 +146,6 @@ const unsigned long INSPECTION_DURATION = 15000;
 
 // Flags
 String currentAlert = "";
-bool sdCardAvailable = false;
-String currentLogFile = "";
 bool obstacleDetected = false;
 bool lowBatteryMode = false;
 unsigned long totalInspections = 0;
@@ -554,58 +473,6 @@ void registerMachine(String uid) {
 }
 
 // =========================================================================
-// 📷 CAMERA & SD CARD
-// =========================================================================
-
-void captureImage() {
-  digitalWrite(CAM_TRIGGER, HIGH);
-  delay(100);
-  digitalWrite(CAM_TRIGGER, LOW);
-  
-  if (currentMachine != nullptr) {
-    currentMachine->lastImagePath = "/img_" + String(millis()) + ".jpg";
-    Serial.println("[CAM] Image captured: " + currentMachine->lastImagePath);
-  }
-  delay(500);
-}
-
-bool initSDCard() {
-  if (!SD.begin(SD_CS)) {
-    Serial.println("[SD] Card initialization failed");
-    return false;
-  }
-  
-  Serial.println("[SD] Card initialized");
-  sdCardAvailable = true;
-  
-  currentLogFile = "/log_" + String(millis()) + ".csv";
-  File file = SD.open(currentLogFile, FILE_WRITE);
-  if (file) {
-    file.println("Timestamp,MachineID,Name,Temp,Humidity,Gas,Distance,Alert,BatteryV");
-    file.close();
-  }
-  return true;
-}
-
-void logToSD(Machine* machine, float temp, float humidity, float gas, float distance) {
-  if (!sdCardAvailable) return;
-  
-  File file = SD.open(currentLogFile, FILE_APPEND);
-  if (!file) return;
-  
-  file.print(millis()); file.print(",");
-  file.print(machine->uid); file.print(",");
-  file.print(machine->name); file.print(",");
-  file.print(temp); file.print(",");
-  file.print(humidity); file.print(",");
-  file.print(gas); file.print(",");
-  file.print(distance); file.print(",");
-  file.print(machine->hasAlert); file.print(",");
-  file.println(currentReading.batteryVoltage);
-  file.close();
-}
-
-// =========================================================================
 // 🚨 ANOMALY DETECTION
 // =========================================================================
 
@@ -655,8 +522,6 @@ void performInspection(Machine* machine) {
   delay(300);
   tone(BUZZER_PIN, 2000, 200);
   
-  captureImage();
-  
   inspectionStartTime = millis();
   int sampleCount = 0;
   float tempSum = 0, gasSum = 0, humiditySum = 0, distanceSum = 0;
@@ -689,7 +554,6 @@ void performInspection(Machine* machine) {
   machine->avgTemperature = (machine->avgTemperature + avgTemp) / 2.0;
   machine->avgGasLevel = (machine->avgGasLevel + avgGas) / 2.0;
   
-  logToSD(machine, avgTemp, avgHumidity, avgGas, avgDistance);
   sendInspectionData(machine, avgTemp, avgHumidity, avgGas, avgDistance);
   
   Serial.println("[INSPECTION] Complete");
@@ -738,7 +602,6 @@ void sendInspectionData(Machine* machine, float temp, float humidity, float gas,
   status["hasAlert"] = machine->hasAlert;
   status["alertType"] = currentAlert;
   status["totalInspections"] = totalInspections;
-  status["imagePath"] = machine->lastImagePath;
   
   JsonObject statistics = doc.createNestedObject("statistics");
   statistics["obstaclesDetected"] = stats.obstaclesDetected;
@@ -925,9 +788,7 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(STATUS_LED, OUTPUT);
-  pinMode(CAM_TRIGGER, OUTPUT);
   pinMode(BATTERY_PIN, INPUT);
-  digitalWrite(CAM_TRIGGER, LOW);
   
   // Initialize
   setupMotorPWM();
@@ -935,7 +796,6 @@ void setup() {
   dht.begin();
   SPI.begin();
   rfid.PCD_Init();
-  initSDCard();
   
   Serial.println("[INIT] Sensors initialized");
   
