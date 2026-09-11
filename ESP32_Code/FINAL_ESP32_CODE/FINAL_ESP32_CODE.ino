@@ -12,7 +12,6 @@
  * ✅ Software-PWM Speed Control (Slow/Medium/Fast via IN pins)
  * ✅ PID Line Following Algorithm
  * ✅ Intelligent Obstacle Avoidance
- * ✅ Battery Monitoring & Protection
  * ✅ RFID Machine Identification (3 machines)
  * ✅ Multi-Sensor Monitoring (DHT11, MQ135, Ultrasonic, IR)
  * ✅ WiFi + Bluetooth Control
@@ -22,7 +21,7 @@
  * ✅ OTA Updates
  * ✅ Watchdog Timer
  *
- * Version: 5.1 FINAL (SD card & ESP32-CAM removed - not used)
+ * Version: 5.2 FINAL (SD, ESP32-CAM & battery monitoring removed - not used)
  * Date: September 9, 2026
  * Tested: ESP32 Arduino Core 3.x
  * =========================================================================
@@ -80,7 +79,6 @@ const char* hostname = "industrial-robot";
 #define TRIG_PIN 17
 #define ECHO_PIN 35
 #define MQ135_PIN 34
-#define BATTERY_PIN 36
 
 // RFID Reader
 #define RST_PIN 22
@@ -117,9 +115,9 @@ RobotMode currentMode = MODE_IDLE;
 SpeedProfile currentSpeed = SPEED_FAST;
 
 Machine machines[3] = {
-  {"", "Machine A - Hydraulic Press", "Zone 1", 0, 0, 0, 0, false, "", 50.0, 15.0, 450},
-  {"", "Machine B - CNC Lathe", "Zone 2", 0, 0, 0, 0, false, "", 45.0, 15.0, 400},
-  {"", "Machine C - Conveyor Motor", "Zone 3", 0, 0, 0, 0, false, "", 48.0, 15.0, 420}
+  {"", "Machine A - Hydraulic Press", "Zone 1", 0, 0, 0, 0, false, 50.0, 15.0, 450},
+  {"", "Machine B - CNC Lathe",       "Zone 2", 0, 0, 0, 0, false, 45.0, 15.0, 400},
+  {"", "Machine C - Conveyor Motor",  "Zone 3", 0, 0, 0, 0, false, 48.0, 15.0, 420}
 };
 
 Machine* currentMachine = nullptr;
@@ -134,20 +132,17 @@ int targetSpeedRight = 0;
 // Timing
 unsigned long lastIoTUpdate = 0;
 unsigned long lastSensorRead = 0;
-unsigned long lastBatteryCheck = 0;
 unsigned long lastObstacleCheck = 0;
 unsigned long inspectionStartTime = 0;
 
 const unsigned long IOT_UPDATE_INTERVAL = 3000;
 const unsigned long SENSOR_READ_INTERVAL = 500;
-const unsigned long BATTERY_CHECK_INTERVAL = 5000;
 const unsigned long OBSTACLE_CHECK_INTERVAL = 200;
 const unsigned long INSPECTION_DURATION = 15000;
 
 // Flags
 String currentAlert = "";
 bool obstacleDetected = false;
-bool lowBatteryMode = false;
 unsigned long totalInspections = 0;
 unsigned long alertCount = 0;
 
@@ -362,51 +357,6 @@ void performObstacleAvoidance() {
 }
 
 // =========================================================================
-// 🔋 BATTERY MONITORING
-// =========================================================================
-
-float readBatteryVoltage() {
-  int rawValue = analogRead(BATTERY_PIN);
-  return (rawValue / 4095.0) * 3.3 * batteryConfig.voltageDividerRatio;
-}
-
-float calculateBatteryPercent(float voltage) {
-  float percent = ((voltage - batteryConfig.minVoltage) / 
-                   (batteryConfig.maxVoltage - batteryConfig.minVoltage)) * 100.0;
-  return constrain(percent, 0, 100);
-}
-
-void checkBattery() {
-  if (millis() - lastBatteryCheck < BATTERY_CHECK_INTERVAL) return;
-  
-  lastBatteryCheck = millis();
-  currentReading.batteryVoltage = readBatteryVoltage();
-  currentReading.batteryPercent = calculateBatteryPercent(currentReading.batteryVoltage);
-  
-  if (currentReading.batteryVoltage < batteryConfig.criticalBatteryThreshold) {
-    if (!lowBatteryMode) {
-      Serial.println("[BATTERY] CRITICAL!");
-      lowBatteryMode = true;
-      currentMode = MODE_LOW_BATTERY;
-      stopMotors();
-      
-      for (int i = 0; i < 5; i++) {
-        tone(BUZZER_PIN, 1000, 200);
-        delay(300);
-      }
-    }
-  } else if (currentReading.batteryVoltage < batteryConfig.lowBatteryThreshold) {
-    if (!lowBatteryMode) {
-      Serial.println("[BATTERY] LOW!");
-      lowBatteryMode = true;
-      tone(BUZZER_PIN, 800, 500);
-    }
-  } else {
-    lowBatteryMode = false;
-  }
-}
-
-// =========================================================================
 // 📊 SENSOR READING
 // =========================================================================
 
@@ -528,7 +478,6 @@ void performInspection(Machine* machine) {
   
   while (millis() - inspectionStartTime < INSPECTION_DURATION) {
     readAllSensors();
-    checkBattery();
     
     tempSum += currentReading.temperature;
     gasSum += currentReading.gasLevel;
@@ -559,7 +508,6 @@ void performInspection(Machine* machine) {
   Serial.println("[INSPECTION] Complete");
   Serial.println("  Temp: " + String(avgTemp) + "C");
   Serial.println("  Gas: " + String(avgGas) + " PPM");
-  Serial.println("  Battery: " + String(currentReading.batteryPercent) + "%");
   Serial.print("  Alert: ");
   Serial.println(machine->hasAlert ? "YES" : "NO");
   Serial.println("========================================\n");
@@ -595,8 +543,6 @@ void sendInspectionData(Machine* machine, float temp, float humidity, float gas,
   sensors["humidity"] = humidity;
   sensors["gasLevel"] = gas;
   sensors["distance"] = distance;
-  sensors["batteryVoltage"] = currentReading.batteryVoltage;
-  sensors["batteryPercent"] = currentReading.batteryPercent;
   
   JsonObject status = doc.createNestedObject("status");
   status["hasAlert"] = machine->hasAlert;
@@ -653,8 +599,6 @@ void sendLiveData() {
   sensors["distance"] = currentReading.distance;
   sensors["leftIR"] = currentReading.leftIR;
   sensors["rightIR"] = currentReading.rightIR;
-  sensors["batteryVoltage"] = currentReading.batteryVoltage;
-  sensors["batteryPercent"] = currentReading.batteryPercent;
   
   JsonObject stats_obj = doc.createNestedObject("stats");
   stats_obj["obstaclesDetected"] = stats.obstaclesDetected;
@@ -676,7 +620,6 @@ String getModeString() {
     case MODE_AUTO_LINE_FOLLOW: return "AUTO_LINE_FOLLOW";
     case MODE_INSPECTION: return "INSPECTION";
     case MODE_OBSTACLE_AVOID: return "OBSTACLE_AVOID";
-    case MODE_LOW_BATTERY: return "LOW_BATTERY";
     case MODE_IDLE: return "IDLE";
     default: return "UNKNOWN";
   }
@@ -788,7 +731,6 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(STATUS_LED, OUTPUT);
-  pinMode(BATTERY_PIN, INPUT);
   
   // Initialize
   setupMotorPWM();
@@ -864,7 +806,6 @@ void loop() {
   checkWiFi();             // auto-reconnect if WiFi drops
   
   readAllSensors();        // rate-limited internally (500 ms)
-  checkBattery();          // rate-limited internally (5 s)
   handleBluetooth();
   
   // RFID Detection (rate-limited to every 100 ms — loop now runs at ~1 kHz)
@@ -914,10 +855,6 @@ void loop() {
         lastDetectedMachineIndex = -1;
       }
       currentMode = MODE_AUTO_LINE_FOLLOW;
-      break;
-      
-    case MODE_LOW_BATTERY:
-      stopMotors();
       break;
       
     case MODE_MANUAL:

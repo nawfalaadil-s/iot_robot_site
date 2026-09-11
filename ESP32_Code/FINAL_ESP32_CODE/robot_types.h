@@ -7,8 +7,7 @@ enum RobotMode {
   MODE_MANUAL,
   MODE_AUTO_LINE_FOLLOW,
   MODE_INSPECTION,
-  MODE_OBSTACLE_AVOID,
-  MODE_LOW_BATTERY
+  MODE_OBSTACLE_AVOID
 };
 
 // Speed Profiles (software-PWM duty %, 100 = FULL SPEED)
@@ -26,8 +25,6 @@ struct SensorData {
   float distance;
   int leftIR;
   int rightIR;
-  float batteryVoltage;
-  float batteryPercent;
   unsigned long timestamp;
 } currentReading;
 
@@ -41,7 +38,6 @@ struct Machine {
   float avgTemperature;
   float avgGasLevel;
   bool hasAlert;
-  String lastImagePath;
   float maxTemp;
   float minTemp;
   int maxGas;
@@ -56,15 +52,6 @@ struct PIDController {
   float integral = 0;
   float output = 0;
 } pidController;
-
-// Battery Configuration
-struct BatteryConfig {
-  float maxVoltage = 8.4;
-  float minVoltage = 6.4;
-  float lowBatteryThreshold = 6.8;
-  float criticalBatteryThreshold = 6.5;
-  float voltageDividerRatio = 2.0;
-} batteryConfig;
 
 // System Statistics
 struct SystemStats {
