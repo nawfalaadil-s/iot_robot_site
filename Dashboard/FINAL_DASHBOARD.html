@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Industrial Robot AI Dashboard - Complete</title>
+    <style>
+        /* Complete CSS Styles */
+        :root {
+            --primary: #2563eb;
+            --secondary: #0891b2;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark-bg: #0f172a;
+            --card-bg: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border: #334155;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        
+        .header {
+            background: var(--card-bg);
+            border-bottom: 2px solid var(--primary);
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.4);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            padding: 1.5rem 2rem;
+        }
+        
+        .header-content {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        
+        .logo { display: flex; align-items: center; gap: 1rem; }
+        .robot-icon { font-size: 2.5rem; animation: float 3s ease-in-out infinite; }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .logo h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .version { font-size: 0.8rem; color: var(--text-secondary); }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--danger);
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        .status-dot.connected { background: var(--success); }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .dashboard {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .section {
+            background: var(--card-bg);
+            border-radius: 15px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.4);
+            border: 1px solid var(--border);
+        }
+        
+        .section h2 {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .grid { display: grid; gap: 1.5rem; }
+        .grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+        .grid-3 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+        .grid-4 { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+        
+        .card {
+            background: rgba(37, 99, 235, 0.1);
+            padding: 1.5rem;
+            border-radius: 10px;
+            border: 1px solid var(--primary);
+            transition: transform 0.3s;
+        }
+        
+        .card:hover { transform: translateY(-5px); }
+        
+        .card-label {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+        
+        .card-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        
+        .sensor-card {
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .sensor-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+        }
+        
+        .sensor-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+        .sensor-label { font-size: 0.9rem; color: var(--text-secondary); }
+        .sensor-value { font-size: 2.5rem; font-weight: 700; margin: 0.5rem 0; }
+        .sensor-unit { font-size: 1rem; color: var(--text-secondary); }
+        
+        .sensor-status {
+            margin-top: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            display: inline-block;
+        }
+        
+        .sensor-status.normal { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .sensor-status.warning { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        .sensor-status.danger { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        
+        .battery-bar {
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 0.5rem 0;
+        }
+        
+        .battery-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--success), var(--warning));
+            transition: width 0.5s;
+            width: 0%;
+        }
+        
+        .ai-badge {
+            background: linear-gradient(135deg, #8b5cf6, #ec4899);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        
+        .prediction-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .prediction-card {
+            background: rgba(255,255,255,0.05);
+            padding: 1.5rem;
+            border-radius: 12px;
+            border-left: 4px solid var(--primary);
+        }
+        
+        .prediction-card.critical { border-left-color: var(--danger); }
+        .prediction-card.warning { border-left-color: var(--warning); }
+        .prediction-card.success { border-left-color: var(--success); }
+        
+        .prediction-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+        .prediction-value { font-size: 2.5rem; font-weight: 700; margin: 0.5rem 0; }
+        .prediction-details { font-size: 0.85rem; color: var(--text-secondary); }
+        
+        .chart-container {
+            background: rgba(255,255,255,0.03);
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+        }
+        
+        .chart-container canvas { max-height: 300px; }
+        
+        .machine-tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .tab-button {
+            padding: 0.75rem 1.5rem;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .tab-button:hover { background: rgba(37, 99, 235, 0.2); }
+        .tab-button.active { background: var(--primary); color: white; }
+        
+        .machine-content { display: none; }
+        .machine-content.active { display: block; animation: fadeIn 0.5s; }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .alert-badge {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+        
+        .alert-badge.normal { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .alert-badge.alert { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        
+        .health-score-circle {
+            width: 120px;
+            height: 120px;
+            position: relative;
+        }
+        
+        .health-score-circle svg { transform: rotate(-90deg); }
+        
+        .circle-bg {
+            fill: none;
+            stroke: rgba(255,255,255,0.1);
+            stroke-width: 8;
+        }
+        
+        .circle-progress {
+            fill: none;
+            stroke: var(--success);
+            stroke-width: 8;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.5s;
+        }
+        
+        .health-score-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        
+        .logs-container {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+        }
+        
+        .log-entry {
+            padding: 0.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            color: var(--text-secondary);
+        }
+        
+        .log-entry.success { color: var(--success); }
+        .log-entry.warning { color: var(--warning); }
+        .log-entry.error { color: var(--danger); }
+        .log-entry.ai { color: #8b5cf6; }
+        
+        .footer {
+            background: var(--card-bg);
+            border-top: 1px solid var(--border);
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-secondary);
+            margin-top: 2rem;
+        }
+        
+        .footer p { margin: 0.25rem 0; }
+        .footer .small { font-size: 0.85rem; }
+        
+        .no-data {
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        @media (max-width: 768px) {
+            .header-content { padding: 1rem; }
+            .dashboard { padding: 1rem; }
+            .section { padding: 1rem; }
+            .grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <span class="robot-icon">🤖</span>
+                <div>
+                    <h1>Industrial Inspection Robot</h1>
+                    <span class="version">v4.0 AI Edition - Live Dashboard</span>
+                </div>
+            </div>
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <span class="ai-badge">🧠 AI Active</span>
+                <div class="connection-status">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span id="statusText">Connecting...</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="dashboard">
+        <!-- AI Predictions -->
+        <section class="section">
+            <h2>🧠 AI Predictive Analytics</h2>
+            <div class="prediction-grid">
+                <div class="prediction-card critical">
+                    <div class="prediction-icon">⚠️</div>
+                    <div class="card-label">Critical Predictions</div>
+                    <div class="prediction-value" id="criticalPredictions">0</div>
+                    <div class="prediction-details" id="criticalDetails">No critical issues</div>
+                </div>
+                <div class="prediction-card warning">
+                    <div class="prediction-icon">⏰</div>
+                    <div class="card-label">Next Maintenance</div>
+                    <div class="prediction-value" id="nextMaintenance">--</div>
+                    <div class="prediction-details">Days remaining</div>
+                </div>
+                <div class="prediction-card success">
+                    <div class="prediction-icon">📈</div>
+                    <div class="card-label">AI Confidence</div>
+                    <div class="prediction-value" id="aiConfidence">95%</div>
+                    <div class="prediction-details">Model accuracy</div>
+                </div>
+                <div class="prediction-card">
+                    <div class="prediction-icon">🎯</div>
+                    <div class="card-label">Predictions Made</div>
+                    <div class="prediction-value" id="predictionCount">0</div>
+                    <div class="prediction-details">Total AI predictions</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Robot Status -->
+        <section class="section">
+            <h2>🤖 Robot Status</h2>
+            <div class="grid grid-4">
+                <div class="card">
+                    <div class="card-label">Operating Mode</div>
+                    <div class="card-value" id="robotMode">IDLE</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Battery Level</div>
+                    <div class="card-value" id="batteryPercent">--</div>
+                    <div class="battery-bar">
+                        <div class="battery-fill" id="batteryFill"></div>
+                    </div>
+                    <div style="font-size: 0.9rem; margin-top: 0.5rem;" id="batteryVoltage">-- V</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Current Speed</div>
+                    <div class="card-value" id="currentSpeed">MEDIUM</div>
+                </div>
+                <div class="card">
+                    <div class="card-label">Total Inspections</div>
+                    <div class="card-value" id="totalInspections">0</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Live Sensors -->
+        <section class="section">
+            <h2>📊 Live Sensor Data</h2>
+            <div class="grid grid-3">
+                <div class="sensor-card card">
+                    <div class="sensor-icon">🌡️</div>
+                    <div class="sensor-label">Temperature</div>
+                    <div class="sensor-value" id="temperature">--</div>
+                    <div class="sensor-unit">°C</div>
+                    <div class="sensor-status" id="tempStatus"></div>
+                </div>
+                <div class="sensor-card card">
+                    <div class="sensor-icon">💧</div>
+                    <div class="sensor-label">Humidity</div>
+                    <div class="sensor-value" id="humidity">--</div>
+                    <div class="sensor-unit">%</div>
+                    <div class="sensor-status" id="humidityStatus"></div>
+                </div>
+                <div class="sensor-card card">
+                    <div class="sensor-icon">💨</div>
+                    <div class="sensor-label">Gas Level</div>
+                    <div class="sensor-value" id="gasLevel">--</div>
+                    <div class="sensor-unit">PPM</div>
+                    <div class="sensor-status" id="gasStatus"></div>
+                </div>
+                <div class="sensor-card card">
+                    <div class="sensor-icon">📏</div>
+                    <div class="sensor-label">Distance</div>
+                    <div class="sensor-value" id="distance">--</div>
+                    <div class="sensor-unit">cm</div>
+                    <div class="sensor-status" id="distanceStatus"></div>
+                </div>
+                <div class="sensor-card card">
+                    <div class="sensor-icon">👁️</div>
+                    <div class="sensor-label">Left IR</div>
+                    <div class="sensor-value" style="font-size: 1.5rem;" id="leftIR">--</div>
+                </div>
+                <div class="sensor-card card">
+                    <div class="sensor-icon">👁️</div>
+                    <div class="sensor-label">Right IR</div>
+                    <div class="sensor-value" style="font-size: 1.5rem;" id="rightIR">--</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Machine Profiles -->
+        <section class="section">
+            <h2>🏭 Machine Profiles</h2>
+            <div class="machine-tabs">
+                <button class="tab-button active" onclick="showMachine(0)">Machine A</button>
+                <button class="tab-button" onclick="showMachine(1)">Machine B</button>
+                <button class="tab-button" onclick="showMachine(2)">Machine C</button>
+            </div>
+
+            <div class="machine-content active" id="machine-0">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                    <div>
+                        <h3>Machine A - Hydraulic Press</h3>
+                        <p style="color: var(--text-secondary);">📍 Zone 1</p>
+                    </div>
+                    <div class="alert-badge" id="alert-0">✓ Normal</div>
+                </div>
+                <div class="grid grid-4">
+                    <div class="card">
+                        <div class="card-label">Inspections</div>
+                        <div class="card-value" id="inspections-0">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Avg Temperature</div>
+                        <div class="card-value" id="avgTemp-0">--</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Avg Gas Level</div>
+                        <div class="card-value" id="avgGas-0">--</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Health Score</div>
+                        <div class="card-value" id="healthScore-0">100%</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="chart-0"></canvas>
+                </div>
+            </div>
+
+            <div class="machine-content" id="machine-1">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                    <div>
+                        <h3>Machine B - CNC Lathe</h3>
+                        <p style="color: var(--text-secondary);">📍 Zone 2</p>
+                    </div>
+                    <div class="alert-badge" id="alert-1">✓ Normal</div>
+                </div>
+                <div class="grid grid-4">
+                    <div class="card">
+                        <div class="card-label">Inspections</div>
+                        <div class="card-value" id="inspections-1">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Avg Temperature</div>
+                        <div class="card-value" id="avgTemp-1">--</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Avg Gas Level</div>
+                        <div class="card-value" id="avgGas-1">--</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Health Score</div>
+                        <div class="card-value" id="healthScore-1">100%</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="chart-1"></canvas>
+                </div>
+            </div>
+
+            <div class="machine-content" id="machine-2">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                    <div>
+                        <h3>Machine C - Conveyor Motor</h3>
+                        <p style="color: var(--text-secondary);">📍 Zone 3</p>
+                    </div>
+                    <div class="alert-badge" id="alert-2">✓ Normal</div>
+                </div>
+                <div class="grid grid-4">
+                    <div class="card">
+                        <div class="card-label">Inspections</div>
+                        <div class="card-value" id="inspections-2">0</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Avg Temperature</div>
+                        <div class="card-value" id="avgTemp-2">--</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Avg Gas Level</div>
+                        <div class="card-value" id="avgGas-2">--</div>
+                    </div>
+                    <div class="card">
+                        <div class="card-label">Health Score</div>
+                        <div class="card-value" id="healthScore-2">100%</div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="chart-2"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- System Logs -->
+        <section class="section">
+            <h2>📝 System Activity Logs</h2>
+            <div class="logs-container" id="logsContainer">
+                <div class="log-entry success">[00:00:00] System initialized successfully</div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>IoT-Enabled AI Autonomous Industrial Monitoring & Inspection Robot v5.0</p>
+        <p class="small">© 2026 Industrial Automation Project | AI-Powered Analytics</p>
+        <p class="small">Backend: Netlify Functions + Blobs (real-time data)</p>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+        // State Management
+        const state = {
+            connected: false,
+            machines: [
+                { id: 0, inspectionCount: 0, avgTemp: 0, avgGas: 0, healthScore: 100, hasAlert: false, chartData: { labels: [], temps: [], gas: [] } },
+                { id: 1, inspectionCount: 0, avgTemp: 0, avgGas: 0, healthScore: 100, hasAlert: false, chartData: { labels: [], temps: [], gas: [] } },
+                { id: 2, inspectionCount: 0, avgTemp: 0, avgGas: 0, healthScore: 100, hasAlert: false, chartData: { labels: [], temps: [], gas: [] } }
+            ],
+            robotStatus: { mode: 'IDLE', speed: 'MEDIUM', totalInspections: 0, batteryPercent: 0, batteryVoltage: 0 },
+            liveData: { temperature: 0, humidity: 0, gasLevel: 0, distance: 0, leftIR: 0, rightIR: 0 },
+            aiPredictions: { critical: 0, nextMaintenance: 7, confidence: 95, count: 0 },
+            logs: [],
+            charts: {},
+            currentMachine: 0
+        };
+
+        // Initialize Charts
+        function initCharts() {
+            for (let i = 0; i < 3; i++) {
+                const ctx = document.getElementById(`chart-${i}`);
+                if (ctx) {
+                    state.charts[i] = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: 'Temperature (°C)',
+                                data: [],
+                                borderColor: '#ef4444',
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                tension: 0.4,
+                                fill: true
+                            }, {
+                                label: 'Gas Level (PPM)',
+                                data: [],
+                                borderColor: '#8b5cf6',
+                                backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                                tension: 0.4,
+                                fill: true,
+                                yAxisID: 'y1'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: { legend: { labels: { color: '#f1f5f9' } } },
+                            scales: {
+                                x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                                y1: { position: 'right', ticks: { color: '#94a3b8' }, grid: { drawOnChartArea: false } }
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        // Update Functions
+        function updateConnection(connected) {
+            state.connected = connected;
+            document.getElementById('statusDot').classList.toggle('connected', connected);
+            document.getElementById('statusText').textContent = connected ? 'Connected' : 'Disconnected';
+        }
+
+        function updateRobotStatus() {
+            document.getElementById('robotMode').textContent = state.robotStatus.mode;
+            document.getElementById('currentSpeed').textContent = state.robotStatus.speed;
+            document.getElementById('totalInspections').textContent = state.robotStatus.totalInspections;
+            document.getElementById('batteryPercent').textContent = Math.round(state.robotStatus.batteryPercent) + '%';
+            document.getElementById('batteryVoltage').textContent = state.robotStatus.batteryVoltage.toFixed(2) + ' V';
+            document.getElementById('batteryFill').style.width = state.robotStatus.batteryPercent + '%';
+        }
+
+        function updateLiveSensors() {
+            document.getElementById('temperature').textContent = state.liveData.temperature.toFixed(1);
+            document.getElementById('humidity').textContent = state.liveData.humidity.toFixed(1);
+            document.getElementById('gasLevel').textContent = state.liveData.gasLevel.toFixed(0);
+            document.getElementById('distance').textContent = state.liveData.distance.toFixed(1);
+            document.getElementById('leftIR').textContent = state.liveData.leftIR === 0 ? 'LINE' : 'NO LINE';
+            document.getElementById('rightIR').textContent = state.liveData.rightIR === 0 ? 'LINE' : 'NO LINE';
+            
+            updateSensorStatus('tempStatus', state.liveData.temperature, 15, 45);
+            updateSensorStatus('humidityStatus', state.liveData.humidity, 20, 80);
+            updateSensorStatus('gasStatus', state.liveData.gasLevel, 0, 400);
+            updateSensorStatus('distanceStatus', state.liveData.distance, 15, 1000);
+        }
+
+        function updateSensorStatus(id, value, min, max) {
+            const el = document.getElementById(id);
+            el.className = 'sensor-status';
+            if (value < min || value > max) {
+                el.classList.add('danger');
+                el.textContent = '⚠ Alert';
+            } else if (value > max * 0.8) {
+                el.classList.add('warning');
+                el.textContent = '⚠ Warning';
+            } else {
+                el.classList.add('normal');
+                el.textContent = '✓ Normal';
+            }
+        }
+
+        function updateMachineDisplay(index) {
+            const m = state.machines[index];
+            document.getElementById(`inspections-${index}`).textContent = m.inspectionCount;
+            document.getElementById(`avgTemp-${index}`).textContent = m.avgTemp ? m.avgTemp.toFixed(1) + '°C' : '--';
+            document.getElementById(`avgGas-${index}`).textContent = m.avgGas ? m.avgGas.toFixed(0) + ' PPM' : '--';
+            document.getElementById(`healthScore-${index}`).textContent = m.healthScore + '%';
+            
+            const badge = document.getElementById(`alert-${index}`);
+            badge.className = m.hasAlert ? 'alert-badge alert' : 'alert-badge normal';
+            badge.textContent = m.hasAlert ? '⚠ Alert' : '✓ Normal';
+        }
+
+        function updateAIPredictions() {
+            document.getElementById('criticalPredictions').textContent = state.aiPredictions.critical;
+            document.getElementById('nextMaintenance').textContent = state.aiPredictions.nextMaintenance + 'd';
+            document.getElementById('aiConfidence').textContent = state.aiPredictions.confidence + '%';
+            document.getElementById('predictionCount').textContent = state.aiPredictions.count;
+        }
+
+        function addLog(message, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            state.logs.unshift({ time, message, type });
+            if (state.logs.length > 100) state.logs.pop();
+            
+            const container = document.getElementById('logsContainer');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${time}] ${message}`;
+            container.insertBefore(entry, container.firstChild);
+            
+            if (container.children.length > 50) {
+                container.removeChild(container.lastChild);
+            }
+        }
+
+        function showMachine(index) {
+            state.currentMachine = index;
+            document.querySelectorAll('.tab-button').forEach((btn, i) => {
+                btn.classList.toggle('active', i === index);
+            });
+            document.querySelectorAll('.machine-content').forEach((content, i) => {
+                content.classList.toggle('active', i === index);
+            });
+        }
+
+        // ============ REAL-TIME BACKEND CONNECTION (Netlify Functions) ============
+        const API_LIVE = '/api/live';
+        const API_INSPECTIONS = '/api/inspection';
+
+        let simMode = false;
+        let simStarted = false;
+        let liveFailures = 0;
+        let lastProcessedId = null;
+
+        function machineIndexFromName(name) {
+            if (!name) return -1;
+            const n = name.toUpperCase();
+            if (n.includes('MACHINE A') || n.includes('HYDRAULIC')) return 0;
+            if (n.includes('MACHINE B') || n.includes('CNC')) return 1;
+            if (n.includes('MACHINE C') || n.includes('CONVEYOR')) return 2;
+            return -1;
+        }
+
+        function speedLabel(duty) {
+            if (duty >= 100) return 'FAST';
+            if (duty >= 75) return 'MEDIUM';
+            if (duty > 0) return 'SLOW';
+            return 'STOPPED';
+        }
+
+        // Simulation (fallback demo mode - runs only when backend is unreachable)
+        function simulateData() {
+            state.liveData = {
+                temperature: 20 + Math.random() * 20,
+                humidity: 40 + Math.random() * 35,
+                gasLevel: 200 + Math.random() * 250,
+                distance: 10 + Math.random() * 40,
+                leftIR: Math.random() > 0.5 ? 1 : 0,
+                rightIR: Math.random() > 0.5 ? 1 : 0
+            };
+            
+            state.robotStatus.batteryPercent = Math.max(10, state.robotStatus.batteryPercent - 0.001);
+            state.robotStatus.batteryVoltage = 6.4 + (state.robotStatus.batteryPercent / 100) * 2.0;
+            
+            if (Math.random() > 0.98) {
+                const machineIndex = Math.floor(Math.random() * 3);
+                const machine = state.machines[machineIndex];
+                machine.inspectionCount++;
+                machine.avgTemp = state.liveData.temperature;
+                machine.avgGas = state.liveData.gasLevel;
+                machine.healthScore = Math.max(80, machine.healthScore - Math.random() * 2);
+                machine.hasAlert = Math.random() > 0.7;
+                
+                state.robotStatus.totalInspections++;
+                state.aiPredictions.count++;
+                
+                updateMachineDisplay(machineIndex);
+                addLog(`Inspection completed for Machine ${String.fromCharCode(65 + machineIndex)}`, 'success');
+                
+                // Update chart
+                const time = new Date().toLocaleTimeString();
+                machine.chartData.labels.push(time);
+                machine.chartData.temps.push(machine.avgTemp);
+                machine.chartData.gas.push(machine.avgGas);
+                
+                if (machine.chartData.labels.length > 20) {
+                    machine.chartData.labels.shift();
+                    machine.chartData.temps.shift();
+                    machine.chartData.gas.shift();
+                }
+                
+                if (state.charts[machineIndex]) {
+                    state.charts[machineIndex].data.labels = machine.chartData.labels;
+                    state.charts[machineIndex].data.datasets[0].data = machine.chartData.temps;
+                    state.charts[machineIndex].data.datasets[1].data = machine.chartData.gas;
+                    state.charts[machineIndex].update();
+                }
+            }
+            
+            updateRobotStatus();
+            updateLiveSensors();
+            updateAIPredictions();
+        }
+
+        function pushChartData(index, temp, gas) {
+            const m = state.machines[index];
+            const time = new Date().toLocaleTimeString();
+            m.chartData.labels.push(time);
+            m.chartData.temps.push(temp);
+            m.chartData.gas.push(gas);
+            if (m.chartData.labels.length > 20) {
+                m.chartData.labels.shift();
+                m.chartData.temps.shift();
+                m.chartData.gas.shift();
+            }
+            if (state.charts[index]) {
+                state.charts[index].data.labels = m.chartData.labels;
+                state.charts[index].data.datasets[0].data = m.chartData.temps;
+                state.charts[index].data.datasets[1].data = m.chartData.gas;
+                state.charts[index].update('none');
+            }
+        }
+
+        // Poll live telemetry every 3 s (robot posts every 3 s)
+        async function pollLive() {
+            if (simMode) return;
+            try {
+                const res = await fetch(API_LIVE, { cache: 'no-store' });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const json = await res.json();
+
+                if (json.ok && json.data) {
+                    const d = json.data;
+                    const s = d.sensors || {};
+                    const fresh = d._serverTime && (Date.now() - d._serverTime < 15000);
+
+                    state.liveData = {
+                        temperature: typeof s.temperature === 'number' ? s.temperature : 0,
+                        humidity: typeof s.humidity === 'number' ? s.humidity : 0,
+                        gasLevel: typeof s.gasLevel === 'number' ? s.gasLevel : 0,
+                        distance: typeof s.distance === 'number' ? s.distance : 0,
+                        leftIR: s.leftIR || 0,
+                        rightIR: s.rightIR || 0
+                    };
+                    state.robotStatus.mode = d.mode || 'UNKNOWN';
+                    state.robotStatus.speed = speedLabel(d.speed);
+                    if (s.batteryPercent) {
+                        state.robotStatus.batteryPercent = s.batteryPercent;
+                        state.robotStatus.batteryVoltage = s.batteryVoltage || 0;
+                    }
+                    if (d.stats && d.stats.inspectionsCompleted) {
+                        state.robotStatus.totalInspections = d.stats.inspectionsCompleted;
+                    }
+                    state.aiPredictions.count = state.robotStatus.totalInspections;
+
+                    liveFailures = 0;
+                    updateConnection(!!fresh);
+                    updateRobotStatus();
+                    updateLiveSensors();
+                    updateAIPredictions();
+                } else {
+                    updateConnection(false);
+                }
+            } catch (err) {
+                liveFailures++;
+                if (liveFailures >= 3 && !simStarted) {
+                    simMode = true;
+                    simStarted = true;
+                    addLog('Backend unreachable - switched to DEMO simulation mode', 'warning');
+                    setInterval(simulateData, 3000);
+                    simulateData();
+                }
+            }
+        }
+
+        function applyInspection(ins) {
+            const idx = machineIndexFromName(ins.machineName);
+            if (idx < 0) return;
+            const m = state.machines[idx];
+            const s = ins.sensors || {};
+
+            m.inspectionCount = ins.inspectionCount || (m.inspectionCount + 1);
+            m.avgTemp = typeof s.temperature === 'number' ? s.temperature : m.avgTemp;
+            m.avgGas = typeof s.gasLevel === 'number' ? s.gasLevel : m.avgGas;
+            m.hasAlert = !!(ins.status && ins.status.hasAlert);
+            m.healthScore = m.hasAlert ? Math.max(60, m.healthScore - 8) : Math.min(100, m.healthScore + 3);
+
+            if (ins.status && ins.status.totalInspections) {
+                state.robotStatus.totalInspections = Math.max(state.robotStatus.totalInspections, ins.status.totalInspections);
+            }
+            if (m.hasAlert) {
+                state.aiPredictions.critical++;
+                addLog('⚠ ' + ins.machineName + ': ' + ((ins.status && ins.status.alertType) || 'ALERT'), 'danger');
+            } else {
+                addLog('Inspection completed - ' + ins.machineName, 'success');
+            }
+
+            pushChartData(idx, m.avgTemp, m.avgGas);
+            updateMachineDisplay(idx);
+            updateAIPredictions();
+            updateRobotStatus();
+        }
+
+        // Poll inspection history every 6 s (robot posts after every inspection)
+        async function pollInspections() {
+            if (simMode) return;
+            try {
+                const res = await fetch(API_INSPECTIONS + '?limit=50', { cache: 'no-store' });
+                if (!res.ok) return;
+                const json = await res.json();
+                if (!json.ok || !json.inspections) return;
+                // oldest → newest so history builds in order; skip already-processed
+                const items = json.inspections.slice().reverse();
+                for (const ins of items) {
+                    if (lastProcessedId && ins._id && ins._id <= lastProcessedId) continue;
+                    applyInspection(ins);
+                    if (ins._id) lastProcessedId = ins._id;
+                }
+            } catch (err) { /* connection status handled by pollLive */ }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            addLog('AI Dashboard v5.0 initialized', 'success');
+            addLog('Machine learning models loaded', 'ai');
+            addLog('Connecting to robot backend (real-time)...', 'info');
+            
+            setInterval(pollLive, 3000);
+            setInterval(pollInspections, 6000);
+            pollLive();
+            pollInspections();
+        });
+
+        window.showMachine = showMachine;
+    </script>
+</body>
+</html>

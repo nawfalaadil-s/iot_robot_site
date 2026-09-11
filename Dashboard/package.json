@@ -1,0 +1,9 @@
+{
+  "name": "industrial-inspection-robot-dashboard",
+  "version": "5.0.0",
+  "private": true,
+  "description": "AI dashboard + Netlify Functions backend for the ESP32 industrial inspection robot",
+  "dependencies": {
+    "@netlify/blobs": "^7.0.0"
+  }
+}

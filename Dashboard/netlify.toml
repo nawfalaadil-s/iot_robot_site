@@ -1,0 +1,7 @@
+# Netlify configuration — deploy THIS folder as the site root
+[build]
+  publish = "."
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"

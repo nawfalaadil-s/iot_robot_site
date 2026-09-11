@@ -1,0 +1,13 @@
+# OS junk
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# Editor junk
+.vscode/
+.idea/
+
+# Arduino build output
+build/
+*.hex
+*.elf
