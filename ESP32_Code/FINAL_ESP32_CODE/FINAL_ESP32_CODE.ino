@@ -148,7 +148,7 @@ Machine machines[3] = {
 
 Machine* currentMachine = nullptr;
 int lastDetectedMachineIndex = -1;
-unsigned long lastInspectionEndMs[3] = {0, 0, 0};  // per-machine cooldown: prevents endless re-inspection while parked on a card
+unsigned long lastReadSameUid[3] = {0, 0, 0};   // when each machine's card was last seen (presence-based re-trigger)
 
 // Motor Control
 int currentSpeedLeft = 0;
@@ -1214,14 +1214,17 @@ void loop() {
       machineIndex = identifyMachine(uid);
     }
     
-    if (machineIndex >= 0 && machineIndex != lastDetectedMachineIndex
-        && millis() - lastInspectionEndMs[machineIndex] > 30000) {  // 30 s cooldown per machine
+    // AUTO-inspection on every card placement (no manual button needed).
+    // A card left sitting on the reader cannot re-trigger — remove it for
+    // ~1.5 s and place again for a fresh automatic inspection.
+    bool freshPlacement = (millis() - lastReadSameUid[machineIndex] > 1500);
+    lastReadSameUid[machineIndex] = millis();
+    if (machineIndex >= 0 && (machineIndex != lastDetectedMachineIndex || freshPlacement)) {
       currentMachine = &machines[machineIndex];
       lastDetectedMachineIndex = machineIndex;
-      lastInspectionEndMs[machineIndex] = millis();
       Serial.println("[SYSTEM] Identified: " + currentMachine->name);
       if (!inspectionActive) {
-        startInspection(currentMachine);
+        startInspection(currentMachine);   // automatic — no button, no command needed
         currentMode = MODE_INSPECTION;
       }
     }
