@@ -48,8 +48,15 @@
 const char* ssid = "robo";                    // Your WiFi name
 const char* password = "robo@123";            // Your WiFi password
 
-// Dashboard URL  ⚠️ CHANGE THIS to your own Netlify site URL after deploying!
-const char* DASHBOARD_URL = "https://iot-car.netlify.app/";
+// Dashboard URL — LOCAL MODE (default): run Dashboard/local-server.mjs on your
+// PC and put your PC's WiFi LAN IP here (run `ipconfig`, look for "IPv4 Address"
+// under your Wi-Fi adapter). The PC and the robot must be on the SAME WiFi.
+// Use http:// (not https) and NO trailing slash. If Windows Firewall asks,
+// allow Node.js on private networks (or open TCP port 3000).
+const char* DASHBOARD_URL = "http://192.168.29.33:3000";
+
+// Hosted (Netlify) alternative:
+// const char* DASHBOARD_URL = "https://iot-car.netlify.app";
 
 // Backend endpoints (Netlify Functions - same origin as the dashboard)
 String inspectionEndpoint() { return String(DASHBOARD_URL) + "/api/inspection"; }

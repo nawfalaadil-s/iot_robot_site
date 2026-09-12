@@ -14,7 +14,14 @@ AI dashboard v5.0 + real-time backend (Netlify Functions + Blobs).
 
 ## Deploy
 
-**Option A — Git (recommended, includes the backend → real-time data):**
+**Option L — Run locally (no hosting at all — recommended for testing):**
+```bash
+node local-server.mjs        # or double-click start-local.bat
+```
+Then open `http://localhost:3000` and point the robot at `http://YOUR-PC-IP:3000`
+(see the main README → "Running 100% LOCALLY"). Data is saved to `Dashboard/data/`.
+
+**Option A — Git (hosted, includes the backend → real-time data):**
 1. Push this folder's contents to a GitHub repo (see main `../README.md`)
 2. Netlify → Add new site → Import project → done
 

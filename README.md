@@ -12,10 +12,12 @@ final/
 │   └── FINAL_ESP32_CODE/
 │       └── FINAL_ESP32_CODE.ino         firmware v5.0 (full-speed digital drive)
 │
-└── Dashboard/                       ← deploy this folder to Netlify
+└── Dashboard/                       ← deploy this folder to Netlify (or run locally)
     ├── index.html                       AI dashboard v5.0 (real-time)
     ├── FINAL_DASHBOARD.html             backup copy of index.html
-    ├── netlify.toml                     Netlify build config
+    ├── local-server.mjs                 🖥️ LOCAL backend (Node.js, no hosting needed)
+    ├── start-local.bat                  🖥️ double-click to start the local server
+    ├── netlify.toml                     Netlify build config (only for hosted mode)
     ├── package.json                     function dependency (@netlify/blobs)
     └── netlify/functions/
         ├── live.mjs                     /api/live      (telemetry in/out)
@@ -24,6 +26,33 @@ final/
 
 > Note: the `.ino` must stay inside a folder with the same name
 > (`FINAL_ESP32_CODE`) — that's an Arduino IDE requirement.
+
+## 🖥️ Running 100% LOCALLY (no Netlify, no hosting)
+
+You can run everything on your own PC — the dashboard and the backend are
+replaced by one small Node.js server with **zero dependencies**.
+
+### Step 1 — Start the server
+Double-click **`Dashboard/start-local.bat`** (or: `cd Dashboard` then `node local-server.mjs`).
+- Dashboard opens at: `http://localhost:3000`
+- Robot data is stored in `Dashboard/data/` as plain JSON files.
+
+### Step 2 — Point the robot at your PC
+1. Find your PC's WiFi IP: run `ipconfig` → look for **IPv4 Address** under your Wi-Fi adapter (e.g. `192.168.29.33`).
+2. In `ESP32_Code/FINAL_ESP32_CODE/FINAL_ESP32_CODE.ino` (line ~56):
+   ```cpp
+   const char* DASHBOARD_URL = "http://YOUR-PC-IP:3000";   // e.g. http://192.168.29.33:3000
+   ```
+3. Upload the firmware. Done — the robot now streams to your local dashboard. ✅
+
+### Requirements & gotchas
+- **Same WiFi:** the ESP32 and your PC must be on the same network (WiFi `robo` in the firmware config).
+- **Firewall:** if Windows asks, allow **Node.js on private networks**. To open the port manually:
+  ```powershell
+  netsh advfirewall firewall add rule name="Robot Dashboard 3000" dir=in action=allow protocol=TCP localport=3000
+  ```
+- **IP changes:** home routers often assign a new IP after a reboot — re-check `ipconfig` if the dashboard stops receiving data (or reserve your PC's IP in the router settings).
+- Hosted mode still works: swap `DASHBOARD_URL` back to your `https://...netlify.app` URL.
 
 ## 🚀 Deployment (3 steps)
 

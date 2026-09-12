@@ -11,3 +11,6 @@ Desktop.ini
 build/
 *.hex
 *.elf
+
+# Local server data (robot telemetry/inspection JSON files)
+Dashboard/data/
