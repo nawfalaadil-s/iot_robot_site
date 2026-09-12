@@ -941,6 +941,23 @@
             setInterval(pollInspections, 6000);
             pollLive();
             pollInspections();
+
+            // Self-heal: if we fell back to DEMO mode (server was down when the
+            // page loaded, or the page was opened as a file:// instead of through
+            // the server), keep probing the real backend every 60 s and switch
+            // back to live data automatically once it responds.
+            setInterval(async () => {
+                if (!simMode) return;
+                try {
+                    const res = await fetch(API_LIVE, { cache: 'no-store' });
+                    if (res.ok) {
+                        simMode = false;
+                        simStarted = false;
+                        liveFailures = 0;
+                        addLog('Reconnected to backend - real robot data restored', 'success');
+                    }
+                } catch (err) { /* backend still down - stay in demo */ }
+            }, 60000);
         });
 
         window.showMachine = showMachine;

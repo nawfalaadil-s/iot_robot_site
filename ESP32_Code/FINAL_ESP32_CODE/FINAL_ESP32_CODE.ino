@@ -38,6 +38,7 @@
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 #include <esp_task_wdt.h>
+#include <esp_system.h>   // esp_reset_reason() — tells us WHY the chip last rebooted
 #include "robot_types.h"   // enums & structs — MUST be the LAST include (Arduino prototype fix)
 
 // =========================================================================
@@ -784,6 +785,26 @@ void setupOTA() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
+
+  // ---- BOOT DIAGNOSTICS: name the cause of the last reboot ----
+  // If the robot keeps going silent, this line tells you exactly why:
+  //   BROWNOUT  = supply/cable too weak at the moment of the radio/motor burst
+  //   PANIC     = software crash (the lines after the boot banner show the error)
+  //   WATCHDOG  = loop() got stuck somewhere
+  //   POWER-ON  = clean normal start
+  esp_reset_reason_t rstReason = esp_reset_reason();
+  Serial.print("[BOOT] Last reset reason: ");
+  switch (rstReason) {
+    case ESP_RST_POWERON:    Serial.println("POWER-ON (normal start)"); break;
+    case ESP_RST_SW:         Serial.println("SOFTWARE restart (normal)"); break;
+    case ESP_RST_PANIC:      Serial.println("CRASH/PANIC (see error below!)"); break;
+    case ESP_RST_INT_WDT:    Serial.println("INTERRUPT WATCHDOG"); break;
+    case ESP_RST_TASK_WDT:   Serial.println("TASK WATCHDOG (loop stuck)"); break;
+    case ESP_RST_WDT:        Serial.println("OTHER WATCHDOG"); break;
+    case ESP_RST_BROWNOUT:   Serial.println("BROWNOUT - voltage sagged! (wiring/supply)"); break;
+    case ESP_RST_DEEPSLEEP:  Serial.println("DEEP-SLEEP wake"); break;
+    default:                 Serial.println("UNKNOWN"); break;
+  }
   
   Serial.println("\n========================================");
   Serial.println(" 🤖 INDUSTRIAL ROBOT v5.3 FINAL");
@@ -839,6 +860,10 @@ void setup() {
   // WiFi
   Serial.print("[WIFI] Connecting to " + String(ssid));
   WiFi.mode(WIFI_STA);
+  // Power note: lowering WiFi TX power cuts peak transmit current roughly from
+  // ~300 mA to ~120 mA. This prevents "Brownout detector was triggered" resets
+  // when the ESP32 is powered from a weak powerbank or thin USB cable.
+  WiFi.setTxPower(WIFI_POWER_11dBm);
   WiFi.begin(ssid, password);
   
   int attempts = 0;
@@ -965,5 +990,16 @@ void loop() {
       break;
   }
   
+  // Heartbeat (every 30 s): proves loop() is alive and shows memory/WiFi health.
+  // If the robot goes silent, the LAST heartbeat line in Serial Monitor tells you
+  // how long it lived and whether heap/WiFi were collapsing before it died.
+  static unsigned long lastHeartbeat = 0;
+  if (millis() - lastHeartbeat >= 30000) {
+    lastHeartbeat = millis();
+    Serial.printf("[HEARTBEAT] uptime=%lus heap=%u wifi=%s rssi=%d\n",
+                  (unsigned long)(millis() / 1000), (unsigned)ESP.getFreeHeap(),
+                  (WiFi.status() == WL_CONNECTED) ? "OK" : "DOWN", WiFi.RSSI());
+  }
+
   sendLiveData();          // rate-limited internally (3 s)
 }
