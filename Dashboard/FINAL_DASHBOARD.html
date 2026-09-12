@@ -388,6 +388,22 @@
         .ai-machine-card.medium { border-left-color: var(--warning); }
         .ai-machine-card.low { border-left-color: var(--success); }
 
+        /* Gamepad-style control layout */
+        .control-layout { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; }
+        .dpad { display: grid; grid-template-areas: ". up ." "left center right" ". down ."; gap: 0.5rem; }
+        .dir { width: 78px; height: 66px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 1.3rem; line-height: 1; user-select: none; touch-action: none; -webkit-user-select: none; }
+        .dir small { font-size: 0.6rem; font-weight: 600; color: var(--text-secondary); margin-top: 2px; pointer-events: none; }
+        .dir.up { grid-area: up; } .dir.down { grid-area: down; } .dir.left { grid-area: left; }
+        .dir.right { grid-area: right; } .dir.center { grid-area: center; }
+        .dir.holding { background: var(--primary); border-color: var(--primary); }
+        .estop { display: block; width: 100%; padding: 1rem 0; font-size: 1.1rem; margin-bottom: 0.4rem; }
+        .control-side { flex: 1; min-width: 220px; max-width: 340px; }
+        .control-grid.two { grid-template-columns: repeat(2, 1fr); }
+        .control-grid.three { grid-template-columns: repeat(3, 1fr); }
+        .ctrl-btn.wide { display: block; width: 100%; }
+        .control-status { margin-top: 1rem; font-size: 0.78rem; color: var(--text-secondary); }
+        @media (max-width: 600px) { .dir { width: 88px; height: 76px; } .dpad { gap: 0.6rem; } }
+
         /* Phone-friendly remote: bigger tap targets on small screens */
         @media (max-width: 600px) {
             .ctrl-btn { padding: 1.25rem 0; font-size: 1.25rem; }
@@ -417,27 +433,35 @@
     </header>
 
     <main class="dashboard">
-        <!-- Manual Control (WiFi commands) — first section so it's on top on phones -->
+        <!-- Manual Control (WiFi commands) — gamepad style: hold to drive, release to stop -->
         <section class="section">
-            <h2>🎮 Manual Control <span style="font-size: 0.75rem; font-weight: 400; color: var(--text-secondary);">— commands reach the robot over WiFi</span></h2>
-            <div class="ctrl-label">Drive</div>
-            <div class="control-grid">
-                <button class="ctrl-btn" onclick="sendCommand('F')">⬆ Forward</button>
-                <button class="ctrl-btn" onclick="sendCommand('B')">⬇ Back</button>
-                <button class="ctrl-btn" onclick="sendCommand('L')">⬅ Left</button>
-                <button class="ctrl-btn" onclick="sendCommand('R')">➡ Right</button>
-                <button class="ctrl-btn" onclick="sendCommand('S')">■ Stop</button>
-                <button class="ctrl-btn danger" onclick="sendCommand('X')">🛑 E-STOP</button>
+            <h2>🎮 Manual Control <span style="font-size: 0.75rem; font-weight: 400; color: var(--text-secondary);">— hold to drive · release to stop</span></h2>
+            <div class="control-layout">
+                <div class="dpad">
+                    <button class="ctrl-btn dir up" data-cmd="F">⬆<small>Forward</small></button>
+                    <button class="ctrl-btn dir left" data-cmd="L">⬅<small>Left</small></button>
+                    <button class="ctrl-btn dir center" onclick="sendCommand('S')">■<small>Stop</small></button>
+                    <button class="ctrl-btn dir right" data-cmd="R">➡<small>Right</small></button>
+                    <button class="ctrl-btn dir down" data-cmd="B">⬇<small>Back</small></button>
+                </div>
+                <div class="control-side">
+                    <button class="ctrl-btn danger estop" onclick="sendCommand('X')">🛑 E-STOP</button>
+                    <div class="ctrl-label">Mode</div>
+                    <div class="control-grid two">
+                        <button class="ctrl-btn" onclick="sendCommand('A')">🤖 Auto</button>
+                        <button class="ctrl-btn" onclick="sendCommand('M')">🕹 Manual</button>
+                    </div>
+                    <div class="ctrl-label">Speed</div>
+                    <div class="control-grid three">
+                        <button class="ctrl-btn" onclick="sendCommand('1')">🐢 1</button>
+                        <button class="ctrl-btn" onclick="sendCommand('2')">🚶 2</button>
+                        <button class="ctrl-btn" onclick="sendCommand('3')">🐇 3</button>
+                    </div>
+                    <div class="ctrl-label">Action</div>
+                    <button class="ctrl-btn wide" onclick="sendCommand('I')">🔍 Inspect</button>
+                </div>
             </div>
-            <div class="ctrl-label">Mode &amp; Speed</div>
-            <div class="control-grid">
-                <button class="ctrl-btn" onclick="sendCommand('A')">🤖 Auto</button>
-                <button class="ctrl-btn" onclick="sendCommand('M')">🕹 Manual</button>
-                <button class="ctrl-btn" onclick="sendCommand('1')">1 Slow</button>
-                <button class="ctrl-btn" onclick="sendCommand('2')">2 Med</button>
-                <button class="ctrl-btn" onclick="sendCommand('3')">3 Fast</button>
-                <button class="ctrl-btn" onclick="sendCommand('I')">🔍 Inspect</button>
-            </div>
+            <div class="control-status"><span id="lastCmd">ready</span> · ⌨️ keyboard: W/↑ forward · S/↓ back · A/← left · D/→ right · Space = E-STOP</div>
         </section>
 
         <!-- AI Predictions -->
@@ -1252,12 +1276,15 @@
                 const cb = document.getElementById('aiAutoMode');
                 if (cb && cb.checked) runAiAnalysis(false);
             }, 30000);
+            initControl();
         });
 
         // Send a drive/mode command to the robot via the backend queue.
         // The robot polls GET /api/command every 500 ms and executes each letter.
-        async function sendCommand(cmd) {
-            addLog('⌨ Command sent: ' + cmd, 'info');
+        async function sendCommand(cmd, quiet) {
+            const lc = document.getElementById('lastCmd');
+            if (lc) lc.textContent = 'last: ' + cmd + ' @ ' + new Date().toLocaleTimeString();
+            if (!quiet) addLog('⌨ Command sent: ' + cmd, 'info');
             try {
                 const res = await fetch(API_COMMAND, {
                     method: 'POST',
@@ -1266,12 +1293,52 @@
                 });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
             } catch (err) {
-                addLog('⚠ Command failed - is the local server running?', 'warning');
+                if (!quiet) addLog('⚠ Command failed - is the local server running?', 'warning');
             }
         }
 
         window.showMachine = showMachine;
         window.sendCommand = sendCommand;
+
+        // Gamepad-style control: hold a direction button to keep sending the
+        // command every 450 ms; release sends 'S' (stop). Keyboard drives too.
+        function initControl() {
+            document.querySelectorAll('.dir[data-cmd]').forEach(btn => {
+                const cmd = btn.dataset.cmd;
+                let timer = null;
+                const start = e => {
+                    e.preventDefault();
+                    if (timer) return;
+                    btn.classList.add('holding');
+                    sendCommand(cmd);
+                    timer = setInterval(() => sendCommand(cmd, true), 450);
+                };
+                const stop = () => {
+                    if (!timer) return;
+                    clearInterval(timer);
+                    timer = null;
+                    btn.classList.remove('holding');
+                    sendCommand('S', true);
+                };
+                btn.addEventListener('pointerdown', start);
+                btn.addEventListener('pointerup', stop);
+                btn.addEventListener('pointerleave', stop);
+                btn.addEventListener('pointercancel', stop);
+                btn.addEventListener('contextmenu', e => e.preventDefault());
+            });
+
+            const keyMap = { ArrowUp: 'F', w: 'F', W: 'F', ArrowDown: 'B', s: 'B', S: 'B', ArrowLeft: 'L', a: 'L', A: 'L', ArrowRight: 'R', d: 'R', D: 'R', ' ': 'X', x: 'X', X: 'X' };
+            document.addEventListener('keydown', e => {
+                const cmd = keyMap[e.key];
+                if (!cmd || e.repeat) return;
+                e.preventDefault();
+                sendCommand(cmd);
+            });
+            document.addEventListener('keyup', e => {
+                const cmd = keyMap[e.key];
+                if (cmd && cmd !== 'X') sendCommand('S', true);
+            });
+        }
     </script>
 </body>
 </html>
