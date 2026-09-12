@@ -340,14 +340,61 @@ void performPIDLineFollowing() {
 // 🚧 OBSTACLE AVOIDANCE
 // =========================================================================
 
+// Ultrasonic wiring auto-detect (set by ultrasonicSelfTest at boot)
+int usTrig = TRIG_PIN;
+int usEcho = ECHO_PIN;
+
+// Fires test pings on BOTH possible Trig/Echo wirings and keeps whichever one
+// actually returns echoes. Auto-fixes the #1 wiring mistake (swapped pins)
+// without rewiring, and tells you if the sensor has no power at all.
+void ultrasonicSelfTest() {
+  Serial.println("[HC-SR04] Wiring self-test (5 pings per wiring)...");
+  int test[2][2] = { { TRIG_PIN, ECHO_PIN }, { ECHO_PIN, TRIG_PIN } };
+  int bestHits = -1, bestIdx = 0;
+  for (int t = 0; t < 2; t++) {
+    int trig = test[t][0], echo = test[t][1];
+    pinMode(trig, OUTPUT);
+    pinMode(echo, INPUT);
+    digitalWrite(trig, LOW);
+    delay(60);
+    int hits = 0;
+    for (int i = 0; i < 5; i++) {
+      digitalWrite(trig, LOW); delayMicroseconds(2);
+      digitalWrite(trig, HIGH); delayMicroseconds(10);
+      digitalWrite(trig, LOW);
+      long d = pulseIn(echo, HIGH, 30000);
+      if (d > 0) hits++;
+      esp_task_wdt_reset();
+      delay(60);
+    }
+    Serial.print("  Test "); Serial.print(t == 0 ? "A" : "B");
+    Serial.print(" (Trig->GPIO"); Serial.print(trig);
+    Serial.print(", Echo->GPIO"); Serial.print(echo);
+    Serial.print("): "); Serial.print(hits); Serial.println("/5 echoes");
+    if (hits > bestHits) { bestHits = hits; bestIdx = t; }
+  }
+  if (bestHits == 0) {
+    Serial.println("[HC-SR04] ⚠ BOTH wirings dead → sensor has NO POWER or is damaged.");
+    Serial.println("          Check: VCC->5V, GND->GND (measure 5V at the sensor with a multimeter),");
+    Serial.println("          and that nothing covers the two silver cans.");
+    usTrig = TRIG_PIN; usEcho = ECHO_PIN;
+  } else if (bestIdx == 1) {
+    usTrig = test[1][0]; usEcho = test[1][1];
+    Serial.println("[HC-SR04] ✔ Your Trig/Echo wires are SWAPPED — no problem!");
+    Serial.println("          Firmware auto-switched to the working wiring (Test B). Distance now works.");
+  } else {
+    Serial.println("[HC-SR04] ✔ Wiring OK (Test A) — normal operation.");
+  }
+}
+
 float readDistance() {
-  digitalWrite(TRIG_PIN, LOW);
+  digitalWrite(usTrig, LOW);
   delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH);
+  digitalWrite(usTrig, HIGH);
   delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
+  digitalWrite(usTrig, LOW);
   
-  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  long duration = pulseIn(usEcho, HIGH, 30000);
   if (duration == 0) {
     // Diagnostic: no echo within 30 ms. Printed at most every 2 s so it
     // doesn't spam the serial monitor. Tells you the sensor is wired wrong
@@ -973,6 +1020,10 @@ void setup() {
   } else {
     Serial.println("[RFID] Reader OK - waiting for a card...");
   }
+
+  // Ultrasonic wiring self-test — auto-fixes swapped Trig/Echo,
+  // diagnoses an unpowered/dead sensor. Runs once at boot (~1 s).
+  ultrasonicSelfTest();
   
   Serial.println("[INIT] Sensors initialized");
   
