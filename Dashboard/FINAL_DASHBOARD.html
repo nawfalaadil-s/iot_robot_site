@@ -365,6 +365,13 @@
         .ctrl-btn:active { transform: scale(0.95); }
         .ctrl-btn.danger { border-color: var(--danger); color: #fca5a5; }
         .ctrl-btn.danger:hover { background: var(--danger); color: #fff; }
+
+        /* Phone-friendly remote: bigger tap targets on small screens */
+        @media (max-width: 600px) {
+            .ctrl-btn { padding: 1.25rem 0; font-size: 1.25rem; }
+            .control-grid { gap: 0.8rem; max-width: none; }
+            .dashboard { padding: 1rem; }
+        }
     </style>
 </head>
 <body>
@@ -388,6 +395,29 @@
     </header>
 
     <main class="dashboard">
+        <!-- Manual Control (WiFi commands) — first section so it's on top on phones -->
+        <section class="section">
+            <h2>🎮 Manual Control <span style="font-size: 0.75rem; font-weight: 400; color: var(--text-secondary);">— commands reach the robot over WiFi</span></h2>
+            <div class="ctrl-label">Drive</div>
+            <div class="control-grid">
+                <button class="ctrl-btn" onclick="sendCommand('F')">⬆ Forward</button>
+                <button class="ctrl-btn" onclick="sendCommand('B')">⬇ Back</button>
+                <button class="ctrl-btn" onclick="sendCommand('L')">⬅ Left</button>
+                <button class="ctrl-btn" onclick="sendCommand('R')">➡ Right</button>
+                <button class="ctrl-btn" onclick="sendCommand('S')">■ Stop</button>
+                <button class="ctrl-btn danger" onclick="sendCommand('X')">🛑 E-STOP</button>
+            </div>
+            <div class="ctrl-label">Mode &amp; Speed</div>
+            <div class="control-grid">
+                <button class="ctrl-btn" onclick="sendCommand('A')">🤖 Auto</button>
+                <button class="ctrl-btn" onclick="sendCommand('M')">🕹 Manual</button>
+                <button class="ctrl-btn" onclick="sendCommand('1')">1 Slow</button>
+                <button class="ctrl-btn" onclick="sendCommand('2')">2 Med</button>
+                <button class="ctrl-btn" onclick="sendCommand('3')">3 Fast</button>
+                <button class="ctrl-btn" onclick="sendCommand('I')">🔍 Inspect</button>
+            </div>
+        </section>
+
         <!-- AI Predictions -->
         <section class="section">
             <h2>🧠 AI Predictive Analytics</h2>
@@ -599,27 +629,6 @@
             <h2>📝 System Activity Logs</h2>
             <div class="logs-container" id="logsContainer">
                 <div class="log-entry success">[00:00:00] System initialized successfully</div>
-            </div>
-        <!-- Manual Control (WiFi commands) -->
-        <section class="section">
-            <h2>🎮 Manual Control <span style="font-size: 0.75rem; font-weight: 400; color: var(--text-secondary);">— commands reach the robot over WiFi</span></h2>
-            <div class="ctrl-label">Drive</div>
-            <div class="control-grid">
-                <button class="ctrl-btn" onclick="sendCommand('F')">⬆ Forward</button>
-                <button class="ctrl-btn" onclick="sendCommand('B')">⬇ Back</button>
-                <button class="ctrl-btn" onclick="sendCommand('L')">⬅ Left</button>
-                <button class="ctrl-btn" onclick="sendCommand('R')">➡ Right</button>
-                <button class="ctrl-btn" onclick="sendCommand('S')">■ Stop</button>
-                <button class="ctrl-btn danger" onclick="sendCommand('X')">🛑 E-STOP</button>
-            </div>
-            <div class="ctrl-label">Mode &amp; Speed</div>
-            <div class="control-grid">
-                <button class="ctrl-btn" onclick="sendCommand('A')">🤖 Auto</button>
-                <button class="ctrl-btn" onclick="sendCommand('M')">🕹 Manual</button>
-                <button class="ctrl-btn" onclick="sendCommand('1')">1 Slow</button>
-                <button class="ctrl-btn" onclick="sendCommand('2')">2 Med</button>
-                <button class="ctrl-btn" onclick="sendCommand('3')">3 Fast</button>
-                <button class="ctrl-btn" onclick="sendCommand('I')">🔍 Inspect</button>
             </div>
         </section>
     </main>
