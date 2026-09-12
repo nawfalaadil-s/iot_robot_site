@@ -165,11 +165,13 @@ unsigned long inspectionStartTime = 0;
 const unsigned long IOT_UPDATE_INTERVAL = 1000;    // 1 s posts → near-real-time dashboard
 const unsigned long SENSOR_READ_INTERVAL = 2000;   // DHT11 needs >= 1 s between reads (500 ms caused NaN/0 spikes)
 const unsigned long OBSTACLE_CHECK_INTERVAL = 200;
+const float OBSTACLE_STOP_CM = 10.0;   // collision guard: stop this far from obstacles (ALL drive modes)
 const unsigned long INSPECTION_DURATION = 15000;
 
 // Flags
 String currentAlert = "";
 bool obstacleDetected = false;
+char lastDriveCmd = 'S';   // last drive command (F/B/L/R/S) — used by the collision guard
 unsigned long totalInspections = 0;
 unsigned long alertCount = 0;
 
@@ -415,9 +417,9 @@ bool checkObstacle() {
   lastObstacleCheck = millis();
   float distance = readDistance();
   
-  if (distance > 0 && distance < 15.0) {
+  if (distance > 0 && distance < OBSTACLE_STOP_CM) {
+    if (!obstacleDetected) stats.obstaclesDetected++;   // count events, not every sample
     obstacleDetected = true;
-    stats.obstaclesDetected++;
     return true;
   }
   
@@ -834,11 +836,11 @@ void handleBluetooth() {
 void executeCommand(char cmd) {
   Serial.println("[CMD] " + String(cmd));
   switch (cmd) {
-    case 'F': currentMode = MODE_MANUAL; moveForward(currentSpeed); break;
-    case 'B': currentMode = MODE_MANUAL; moveBackward(currentSpeed); break;
-    case 'L': currentMode = MODE_MANUAL; turnLeft(currentSpeed); break;
-    case 'R': currentMode = MODE_MANUAL; turnRight(currentSpeed); break;
-    case 'S': stopMotors(); break;
+    case 'F': currentMode = MODE_MANUAL; lastDriveCmd = 'F'; moveForward(currentSpeed); break;
+    case 'B': currentMode = MODE_MANUAL; lastDriveCmd = 'B'; moveBackward(currentSpeed); break;
+    case 'L': currentMode = MODE_MANUAL; lastDriveCmd = 'L'; turnLeft(currentSpeed); break;
+    case 'R': currentMode = MODE_MANUAL; lastDriveCmd = 'R'; turnRight(currentSpeed); break;
+    case 'S': lastDriveCmd = 'S'; stopMotors(); break;
     case 'A': currentMode = MODE_AUTO_LINE_FOLLOW; break;
     case 'M': stopMotors(); inspectionActive = false; inspectionMachine = nullptr; pendingToneAt = 0; currentMode = MODE_MANUAL; break;
     case 'I':
@@ -1140,9 +1142,22 @@ void loop() {
     }
   }
   
-  // Obstacle check
-  if (currentMode == MODE_AUTO_LINE_FOLLOW && checkObstacle()) {
-    currentMode = MODE_OBSTACLE_AVOID;
+  // ---- COLLISION GUARD — all drive modes, stops 10 cm before obstacles ----
+  if (checkObstacle()) {
+    if (currentMode == MODE_AUTO_LINE_FOLLOW) {
+      currentMode = MODE_OBSTACLE_AVOID;          // full avoid maneuver (as before)
+    } else if (currentMode == MODE_MANUAL &&
+               (lastDriveCmd == 'F' || lastDriveCmd == 'L' || lastDriveCmd == 'R')) {
+      // Manual: brake forward motion near an obstacle. Reverse ('B') and
+      // Stop ('S') still work, so you can always drive away from it.
+      static unsigned long lastSafetyMsg = 0;
+      stopMotors();
+      if (millis() - lastSafetyMsg > 1000) {
+        lastSafetyMsg = millis();
+        tone(BUZZER_PIN, 3000, 200);
+        Serial.println("[SAFETY] Obstacle <10 cm ahead - forward motion blocked. Press B to reverse away.");
+      }
+    }
   }
   
   // Mode execution
