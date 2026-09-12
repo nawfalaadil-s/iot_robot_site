@@ -108,6 +108,7 @@ function handleInspection(req, res, body, url) {
   if (req.method === 'POST') {
     try {
       const data = JSON.parse(body || '{}');
+      data._serverTime = Date.now();   // real wall-clock time for dashboard history
       const key = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       writeJson(path.join(INSPECTIONS_DIR, `${key}.json`), data);
 

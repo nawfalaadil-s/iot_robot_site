@@ -366,6 +366,14 @@
         .ctrl-btn.danger { border-color: var(--danger); color: #fca5a5; }
         .ctrl-btn.danger:hover { background: var(--danger); color: #fff; }
 
+        /* Inspection history table (current + previous data per machine) */
+        .history-box { margin-top: 1rem; max-height: 260px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+        .history-title { padding: 0.6rem 0.9rem; font-size: 0.8rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid var(--border); }
+        .history-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .history-table th { text-align: left; padding: 0.45rem 0.9rem; color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid var(--border); }
+        .history-table td { padding: 0.45rem 0.9rem; border-bottom: 1px solid rgba(51,65,85,0.4); }
+        .history-table tr:last-child td { border-bottom: none; }
+
         /* Phone-friendly remote: bigger tap targets on small screens */
         @media (max-width: 600px) {
             .ctrl-btn { padding: 1.25rem 0; font-size: 1.25rem; }
@@ -559,6 +567,13 @@
                 <div class="chart-container">
                     <canvas id="chart-0"></canvas>
                 </div>
+                <div class="history-box" id="history-0">
+                    <div class="history-title">📋 Inspection History (latest first)</div>
+                    <table class="history-table">
+                        <thead><tr><th>Time</th><th>Temp °C</th><th>Gas PPM</th><th>Humidity %</th><th>Status</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
             </div>
 
             <div class="machine-content" id="machine-1">
@@ -589,6 +604,13 @@
                 </div>
                 <div class="chart-container">
                     <canvas id="chart-1"></canvas>
+                </div>
+                <div class="history-box" id="history-1">
+                    <div class="history-title">📋 Inspection History (latest first)</div>
+                    <table class="history-table">
+                        <thead><tr><th>Time</th><th>Temp °C</th><th>Gas PPM</th><th>Humidity %</th><th>Status</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
                 </div>
             </div>
 
@@ -621,6 +643,13 @@
                 <div class="chart-container">
                     <canvas id="chart-2"></canvas>
                 </div>
+                <div class="history-box" id="history-2">
+                    <div class="history-title">📋 Inspection History (latest first)</div>
+                    <table class="history-table">
+                        <thead><tr><th>Time</th><th>Temp °C</th><th>Gas PPM</th><th>Humidity %</th><th>Status</th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
             </div>
         </section>
 
@@ -645,9 +674,9 @@
         const state = {
             connected: false,
             machines: [
-                { id: 0, inspectionCount: 0, avgTemp: 0, avgGas: 0, healthScore: 100, hasAlert: false, chartData: { labels: [], temps: [], gas: [] } },
-                { id: 1, inspectionCount: 0, avgTemp: 0, avgGas: 0, healthScore: 100, hasAlert: false, chartData: { labels: [], temps: [], gas: [] } },
-                { id: 2, inspectionCount: 0, avgTemp: 0, avgGas: 0, healthScore: 100, hasAlert: false, chartData: { labels: [], temps: [], gas: [] } }
+                { id: 0, inspectionCount: 0, avgTemp: 0, avgGas: 0, healthScore: 100, hasAlert: false, history: [], chartData: { labels: [], temps: [], gas: [] } },
+                { id: 1, inspectionCount: 0, avgTemp: 0, avgGas: 0, healthScore: 100, hasAlert: false, history: [], chartData: { labels: [], temps: [], gas: [] } },
+                { id: 2, inspectionCount: 0, avgTemp: 0, avgGas: 0, healthScore: 100, hasAlert: false, history: [], chartData: { labels: [], temps: [], gas: [] } }
             ],
             robotStatus: { mode: 'IDLE', speed: 'MEDIUM', totalInspections: 0, batteryPercent: 0, batteryVoltage: 0 },
             liveData: { temperature: 0, humidity: 0, gasLevel: 0, distance: 0, leftIR: 0, rightIR: 0 },
@@ -813,6 +842,25 @@
             return 'STOPPED';
         }
 
+        // Render one machine's inspection history table (current + previous data)
+        function updateMachineHistory(index) {
+            const m = state.machines[index];
+            const box = document.getElementById(`history-${index}`);
+            if (!box) return;
+            const tbody = box.querySelector('tbody');
+            if (!m.history.length) {
+                tbody.innerHTML = '<tr><td colspan="5" style="color: var(--text-secondary);">No inspections yet — tap an RFID card at the machine</td></tr>';
+                return;
+            }
+            tbody.innerHTML = m.history.map(h => {
+                const fmt = (v) => (typeof v === 'number' ? v.toFixed(1) : '--');
+                const status = h.alert
+                    ? `<span style="color: var(--danger); font-weight: 700;">⚠ ${h.alertType || 'ALERT'}</span>`
+                    : '<span style="color: var(--success);">✓ OK</span>';
+                return `<tr><td>${h.time}</td><td>${fmt(h.temp)}</td><td>${fmt(h.gas)}</td><td>${fmt(h.humidity)}</td><td>${status}</td></tr>`;
+            }).join('');
+        }
+
         // Simulation (fallback demo mode - runs only when backend is unreachable)
         function simulateData() {
             state.liveData = {
@@ -950,6 +998,19 @@
             m.hasAlert = !!(ins.status && ins.status.hasAlert);
             m.healthScore = m.hasAlert ? Math.max(60, m.healthScore - 8) : Math.min(100, m.healthScore + 3);
 
+            // Record this inspection in the machine's history (current + previous data)
+            const when = ins._serverTime ? new Date(ins._serverTime).toLocaleString() : new Date().toLocaleString();
+            m.history.unshift({
+                time: when,
+                temp: s.temperature,
+                gas: s.gasLevel,
+                humidity: s.humidity,
+                distance: s.distance,
+                alert: m.hasAlert,
+                alertType: (ins.status && ins.status.alertType) || ''
+            });
+            if (m.history.length > 20) m.history.pop();
+
             if (ins.status && ins.status.totalInspections) {
                 state.robotStatus.totalInspections = Math.max(state.robotStatus.totalInspections, ins.status.totalInspections);
             }
@@ -962,6 +1023,7 @@
 
             pushChartData(idx, m.avgTemp, m.avgGas);
             updateMachineDisplay(idx);
+            updateMachineHistory(idx);
             updateAIPredictions();
             updateRobotStatus();
         }
