@@ -347,7 +347,17 @@ float readDistance() {
   digitalWrite(TRIG_PIN, LOW);
   
   long duration = pulseIn(ECHO_PIN, HIGH, 30000);
-  if (duration == 0) return -1;
+  if (duration == 0) {
+    // Diagnostic: no echo within 30 ms. Printed at most every 2 s so it
+    // doesn't spam the serial monitor. Tells you the sensor is wired wrong
+    // (Trig/Echo swapped), unpowered, or has nothing within 2-400 cm.
+    static unsigned long lastEchoWarn = 0;
+    if (millis() - lastEchoWarn > 2000) {
+      lastEchoWarn = millis();
+      Serial.println("[HC-SR04] NO ECHO (30ms timeout) - check: Trig->GPIO17, Echo->GPIO35 (+voltage divider), 5V supply, target 2-400cm flat in front");
+    }
+    return -1;
+  }
   return duration * 0.0343 / 2.0;
 }
 
@@ -411,6 +421,15 @@ void readAllSensors() {
   if (isnan(currentReading.temperature)) currentReading.temperature = 0;
   if (isnan(currentReading.humidity)) currentReading.humidity = 0;
   if (currentReading.distance < 0) currentReading.distance = 0;
+
+  // Diagnostic: distance value every 5 s (same value the dashboard receives)
+  static unsigned long lastDistLog = 0;
+  if (millis() - lastDistLog >= 5000) {
+    lastDistLog = millis();
+    Serial.print("[HC-SR04] distance = ");
+    Serial.print(currentReading.distance, 1);
+    Serial.println(" cm  (this exact value appears on the dashboard)");
+  }
 }
 
 // =========================================================================
@@ -934,6 +953,16 @@ void setup() {
   dht.begin();
   SPI.begin();
   rfid.PCD_Init();
+  // Diagnostic: read the MFRC522 version register. A healthy reader answers
+  // 0x91 or 0x92. 0x00 (or 0xFF) = wiring/power problem.
+  byte rfidVersion = rfid.PCD_ReadRegister(MFRC522::VersionReg);
+  Serial.print("[RFID] Reader version: 0x");
+  Serial.println(rfidVersion, HEX);
+  if (rfidVersion == 0x00 || rfidVersion == 0xFF) {
+    Serial.println("[RFID] ⚠ NO RESPONSE! Check: VCC->3.3V (NOT 5V!), GND, SDA->21, SCK->18, MISO->19, MOSI->23, RST->22");
+  } else {
+    Serial.println("[RFID] Reader OK - waiting for a card...");
+  }
   
   Serial.println("[INIT] Sensors initialized");
   
