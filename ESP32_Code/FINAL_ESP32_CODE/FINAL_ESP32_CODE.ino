@@ -172,6 +172,13 @@ const unsigned long INSPECTION_DURATION = 15000;
 String currentAlert = "";
 bool obstacleDetected = false;
 char lastDriveCmd = 'S';   // last drive command (F/B/L/R/S) — used by the collision guard
+
+// Offline inspection queue: reports buffered here while the server/WiFi is
+// unreachable, then auto-flushed when connectivity returns. Nothing is lost.
+#define OFFLINE_QUEUE_MAX 25
+String offlineQueue[OFFLINE_QUEUE_MAX];
+int offlineQueueWrite = 0;   // next slot to write (ring buffer)
+int offlineQueueCount = 0;
 unsigned long totalInspections = 0;
 unsigned long alertCount = 0;
 
@@ -684,8 +691,6 @@ void runInspectionStep() {
 // =========================================================================
 
 void sendInspectionData(Machine* machine, float temp, float humidity, float gas, float distance) {
-  if (WiFi.status() != WL_CONNECTED) return;
-  
   HTTPClient http;
   StaticJsonDocument<2048> doc;
   
@@ -715,26 +720,77 @@ void sendInspectionData(Machine* machine, float temp, float humidity, float gas,
   String jsonString;
   serializeJson(doc, jsonString);
   
-  Serial.println("[IoT] Sending to dashboard...");
-  
-  http.begin(inspectionEndpoint());
-  http.setConnectTimeout(3000);   // bound the connection attempt (3 s)
-  http.setTimeout(5000);          // bound the response wait (5 s)
-  http.addHeader("Content-Type", "application/json");
-  esp_task_wdt_reset();           // feed WDT right before the blocking POST
-  int httpCode = http.POST(jsonString);
-  esp_task_wdt_reset();           // feed WDT right after
-  
-  if (httpCode > 0) {
-    Serial.println("[IoT] Response: " + String(httpCode));
-  } else {
-    Serial.println("[IoT] Error: " + String(httpCode));
+  bool sent = false;
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("[IoT] Sending to dashboard...");
+    http.begin(inspectionEndpoint());
+    http.setConnectTimeout(3000);   // bound the connection attempt (3 s)
+    http.setTimeout(5000);          // bound the response wait (5 s)
+    http.addHeader("Content-Type", "application/json");
+    esp_task_wdt_reset();           // feed WDT right before the blocking POST
+    int httpCode = http.POST(jsonString);
+    esp_task_wdt_reset();           // feed WDT right after
+    sent = (httpCode == 200);
+    if (sent) {
+      Serial.println("[IoT] Report delivered (HTTP 200)");
+    } else {
+      Serial.println("[IoT] Error: " + String(httpCode));
+    }
   }
-  
   http.end();
-  
+
+  if (!sent) {
+    // Offline buffer — never lose an inspection report
+    if (offlineQueueCount < OFFLINE_QUEUE_MAX) {
+      offlineQueue[offlineQueueWrite] = jsonString;
+      offlineQueueWrite = (offlineQueueWrite + 1) % OFFLINE_QUEUE_MAX;
+      offlineQueueCount++;
+      Serial.println("[IoT] Server unreachable - report QUEUED (" + String(offlineQueueCount) + "/" + String(OFFLINE_QUEUE_MAX) + "), will send automatically");
+    } else {
+      // ring full: overwrite the oldest buffered report
+      offlineQueue[offlineQueueWrite] = jsonString;
+      offlineQueueWrite = (offlineQueueWrite + 1) % OFFLINE_QUEUE_MAX;
+      Serial.println("[IoT] ⚠ Queue full - oldest buffered report replaced");
+    }
+  } else {
+    flushOfflineQueue();   // connectivity is fine → send anything buffered earlier
+  }
+
   machine->hasAlert = false;
   currentAlert = "";
+}
+
+// Send buffered inspection reports (max 5 per call so loop() never blocks long).
+// Called from loop() and after every successful live POST.
+void flushOfflineQueue() {
+  static unsigned long lastFlush = 0;
+  if (offlineQueueCount == 0) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (millis() - lastFlush < 2000) return;    // gentle retry pace
+  lastFlush = millis();
+
+  HTTPClient http;
+  int sent = 0;
+  while (offlineQueueCount > 0 && sent < 5) {
+    int oldest = (offlineQueueWrite - offlineQueueCount + OFFLINE_QUEUE_MAX) % OFFLINE_QUEUE_MAX;
+    http.begin(inspectionEndpoint());
+    http.setConnectTimeout(3000);
+    http.setTimeout(5000);
+    http.addHeader("Content-Type", "application/json");
+    esp_task_wdt_reset();
+    int code = http.POST(offlineQueue[oldest]);
+    esp_task_wdt_reset();
+    http.end();
+    if (code != 200) {
+      Serial.println("[IoT] Flush paused - server still unreachable");
+      return;
+    }
+    offlineQueueCount--;
+    sent++;
+  }
+  if (sent > 0) {
+    Serial.println("[IoT] ✔ Flushed " + String(sent) + " queued report(s) - " + String(offlineQueueCount) + " still buffered");
+  }
 }
 
 void sendLiveData() {
@@ -1109,6 +1165,7 @@ void loop() {
 
   readAllSensors();        // rate-limited internally (500 ms)
   pollCloudCommands();     // WiFi control — drains the dashboard command queue
+  flushOfflineQueue();     // re-send any inspection reports buffered while offline
 #if ENABLE_BLUETOOTH
   handleBluetooth();
 #endif
