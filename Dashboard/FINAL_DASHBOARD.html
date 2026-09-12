@@ -374,6 +374,20 @@
         .history-table td { padding: 0.45rem 0.9rem; border-bottom: 1px solid rgba(51,65,85,0.4); }
         .history-table tr:last-child td { border-bottom: none; }
 
+        /* Gemini AI advisor panel */
+        .ai-advisor { margin-top: 1.5rem; background: rgba(37, 99, 235, 0.08); border: 1px solid var(--primary); border-radius: 12px; padding: 1.2rem; }
+        .ai-advisor-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.8rem; }
+        .ai-advisor-title { font-weight: 700; font-size: 1.05rem; }
+        .ai-status { font-size: 0.8rem; color: var(--text-secondary); }
+        .ai-advisor-controls { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
+        .ai-advisor-controls .ctrl-btn { padding: 0.5rem 1.1rem; font-size: 0.9rem; }
+        .ai-auto-label { font-size: 0.85rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+        .ai-advisor-output { font-size: 0.9rem; line-height: 1.55; max-height: 460px; overflow-y: auto; }
+        .ai-machine-card { background: rgba(255,255,255,0.05); border-left: 3px solid var(--border); border-radius: 8px; padding: 0.8rem 1rem; margin: 0.6rem 0; }
+        .ai-machine-card.high { border-left-color: var(--danger); }
+        .ai-machine-card.medium { border-left-color: var(--warning); }
+        .ai-machine-card.low { border-left-color: var(--success); }
+
         /* Phone-friendly remote: bigger tap targets on small screens */
         @media (max-width: 600px) {
             .ctrl-btn { padding: 1.25rem 0; font-size: 1.25rem; }
@@ -429,6 +443,17 @@
         <!-- AI Predictions -->
         <section class="section">
             <h2>🧠 AI Predictive Analytics</h2>
+            <div class="ai-advisor">
+                <div class="ai-advisor-header">
+                    <span class="ai-advisor-title">✨ Gemini AI Real-Time Analysis</span>
+                    <span class="ai-status" id="aiStatus">checking for API keys…</span>
+                </div>
+                <div class="ai-advisor-controls">
+                    <button class="ctrl-btn" onclick="runAiAnalysis(true)">⚡ Analyze Now</button>
+                    <label class="ai-auto-label"><input type="checkbox" id="aiAutoMode" checked> Auto every 2 min (low quota)</label>
+                </div>
+                <div class="ai-advisor-output" id="aiOutput">Add your Gemini API keys to <b>Dashboard/ai-keys.js</b>, then press <b>Analyze Now</b>. Gemini will assess machine health, predict failures and recommend maintenance — with automatic fallback across all 5 keys.</div>
+            </div>
             <div class="prediction-grid">
                 <div class="prediction-card critical">
                     <div class="prediction-icon">⚠️</div>
@@ -669,6 +694,7 @@
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="ai-keys.js"></script>
     <script>
         // State Management
         const state = {
@@ -861,6 +887,145 @@
             }).join('');
         }
 
+        // ==================== GEMINI AI REAL-TIME ANALYSIS ====================
+        // Keys live in Dashboard/ai-keys.js (git-ignored — NEVER commit keys).
+        // Fallback: key 1 → key 2 → … → key 5; a limited/invalid key cools down 60 s.
+        // Low consumption: max 1 auto-call per 2 min, ~1 KB prompt, JSON-only output,
+        // skipped while the tab is hidden, and after every new inspection (throttled).
+        const AI_MODEL = 'gemini-2.0-flash';
+        const AI_MIN_INTERVAL_MS = 120000;
+        const MACHINE_INFO = [
+            { name: 'Machine A - Hydraulic Press', zone: 'Zone 1', maxTemp: 50, maxGas: 450 },
+            { name: 'Machine B - CNC Lathe', zone: 'Zone 2', maxTemp: 45, maxGas: 400 },
+            { name: 'Machine C - Conveyor Motor', zone: 'Zone 3', maxTemp: 48, maxGas: 420 }
+        ];
+        let aiKeyCooldown = [];
+        let aiInFlight = false;
+        let lastAiCall = 0;
+
+        function AI_KEYS() { return window.GEMINI_API_KEYS || []; }
+
+        function aiKeysReady() {
+            const k = AI_KEYS();
+            return k.length > 0 && k.some(key => key && !key.startsWith('PASTE_KEY'));
+        }
+
+        function buildAiPrompt() {
+            const payload = {
+                robot: { mode: state.robotStatus.mode, speed: state.robotStatus.speed, totalInspections: state.robotStatus.totalInspections },
+                liveSensors: state.liveData,
+                machines: state.machines.map((m, i) => ({
+                    name: MACHINE_INFO[i].name,
+                    zone: MACHINE_INFO[i].zone,
+                    thresholds: { maxTemp: MACHINE_INFO[i].maxTemp, maxGas: MACHINE_INFO[i].maxGas },
+                    inspections: m.inspectionCount,
+                    avgTemp: m.avgTemp,
+                    avgGas: m.avgGas,
+                    healthScore: m.healthScore,
+                    hasAlert: m.hasAlert,
+                    recentHistory: m.history.slice(0, 5).map(h => ({ time: h.time, temp: h.temp, gas: h.gas, humidity: h.humidity, alert: h.alert, alertType: h.alertType }))
+                }))
+            };
+            return 'You are an industrial maintenance AI analyzing real-time data from a line-following inspection robot '
+                + '(sensors: DHT11 temp/humidity, MQ135 gas PPM, HC-SR04 ultrasonic distance). Assess each machine, '
+                + 'predict likely failures, and recommend maintenance. Reply ONLY with minified JSON, no markdown:\n'
+                + '{"summary":"<2 sentences>","overallRisk":"low|medium|high","machines":[{"name":"<machine name>","risk":"low|medium|high","prediction":"<failure prediction>","recommendation":"<concrete action>"}],"maintenanceDays":{"Machine A":<int days>,"Machine B":<int>,"Machine C":<int>}}\n'
+                + 'DATA: ' + JSON.stringify(payload);
+        }
+
+        async function callGemini(prompt) {
+            const keys = AI_KEYS();
+            let lastErr = null;
+            for (let i = 0; i < keys.length; i++) {
+                if ((aiKeyCooldown[i] || 0) > Date.now()) continue;   // this key is cooling down
+                try {
+                    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + AI_MODEL + ':generateContent?key=' + encodeURIComponent(keys[i]), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }],
+                            generationConfig: { temperature: 0.3, maxOutputTokens: 700 }
+                        })
+                    });
+                    if (res.status === 429 || res.status === 403) {
+                        aiKeyCooldown[i] = Date.now() + 60000;        // quota/invalid key → cool down, rotate to next
+                        lastErr = new Error('key #' + (i + 1) + ' limited (HTTP ' + res.status + ')');
+                        continue;
+                    }
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const json = await res.json();
+                    const c = json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts;
+                    const text = c && c[0] && c[0].text;
+                    if (!text) throw new Error('empty AI response');
+                    return text;
+                } catch (err) {
+                    lastErr = err;
+                }
+            }
+            throw (lastErr || new Error('all API keys exhausted'));
+        }
+
+        function renderAiResult(text) {
+            const out = document.getElementById('aiOutput');
+            let data = null;
+            try {
+                const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                data = JSON.parse(cleaned.slice(cleaned.indexOf('{'), cleaned.lastIndexOf('}') + 1));
+            } catch (e) { out.textContent = text; return; }
+
+            const riskColor = r => ({ high: 'var(--danger)', medium: 'var(--warning)', low: 'var(--success)' }[r] || 'var(--border)');
+            let html = '<div style="margin-bottom: 0.8rem;"><strong>Summary:</strong> ' + (data.summary || '--')
+                + ' <span style="color:' + riskColor(data.overallRisk) + ';font-weight:700;">(overall: ' + (data.overallRisk || '?') + ')</span></div>';
+            for (const mc of (data.machines || [])) {
+                html += '<div class="ai-machine-card ' + (mc.risk || '') + '">'
+                    + '<strong>' + (mc.name || 'Machine') + '</strong> — <span style="color:' + riskColor(mc.risk) + ';font-weight:700;">' + (mc.risk || '?') + ' risk</span><br>'
+                    + '<em>Prediction:</em> ' + (mc.prediction || '--') + '<br>'
+                    + '<em>Action:</em> ' + (mc.recommendation || '--') + '</div>';
+            }
+            if (data.maintenanceDays) {
+                html += '<div style="margin-top: 0.6rem; color: var(--text-secondary);">🔧 Next maintenance — '
+                    + Object.entries(data.maintenanceDays).map(([k, v]) => k + ': ' + v + 'd').join(' · ') + '</div>';
+            }
+            out.innerHTML = html;
+
+            // Feed the top prediction cards from the AI result
+            try {
+                if (data.machines) state.aiPredictions.critical = data.machines.filter(m => m.risk === 'high').length;
+                if (data.maintenanceDays) state.aiPredictions.nextMaintenance = Math.max(1, Math.min.apply(null, Object.values(data.maintenanceDays)));
+                state.aiPredictions.confidence = 88;
+                updateAIPredictions();
+            } catch (e) { /* cosmetic only */ }
+        }
+
+        async function runAiAnalysis(manual) {
+            const statusEl = document.getElementById('aiStatus');
+            if (aiInFlight) return;
+            if (!aiKeysReady()) {
+                statusEl.textContent = '⚠ paste your keys into Dashboard/ai-keys.js';
+                return;
+            }
+            if (!manual) {
+                if (document.hidden) return;                              // save quota when tab not visible
+                if (Date.now() - lastAiCall < AI_MIN_INTERVAL_MS) return; // low-consumption throttle
+                if (!state.connected) return;                             // no real data → nothing to analyze
+            }
+            aiInFlight = true;
+            lastAiCall = Date.now();
+            statusEl.textContent = '🧠 analyzing…';
+            try {
+                const text = await callGemini(buildAiPrompt());
+                renderAiResult(text);
+                statusEl.textContent = 'updated ' + new Date().toLocaleTimeString() + ' · quota use: minimal';
+                addLog('🧠 Gemini AI analysis updated', 'ai');
+            } catch (err) {
+                statusEl.textContent = 'AI unavailable — built-in heuristics in use';
+                document.getElementById('aiOutput').textContent = 'Gemini error: ' + err.message + '\n(Falling back to the built-in prediction cards below.)';
+                addLog('⚠ Gemini AI failed: ' + err.message, 'warning');
+            } finally {
+                aiInFlight = false;
+            }
+        }
+
         // Simulation (fallback demo mode - runs only when backend is unreachable)
         function simulateData() {
             state.liveData = {
@@ -1026,6 +1191,9 @@
             updateMachineHistory(idx);
             updateAIPredictions();
             updateRobotStatus();
+
+            // New real inspection data arrived → refresh the AI prediction (self-throttled)
+            runAiAnalysis(false);
         }
 
         // Poll inspection history every 6 s (robot posts after every inspection)
@@ -1074,6 +1242,16 @@
                     }
                 } catch (err) { /* backend still down - stay in demo */ }
             }, 60000);
+
+            // Gemini AI status + auto-analysis loop (runAiAnalysis throttles itself to 2 min)
+            const aiKeys = AI_KEYS();
+            document.getElementById('aiStatus').textContent = aiKeysReady()
+                ? (aiKeys.length + ' API key(s) loaded — fallback ready')
+                : '⚠ paste your keys into Dashboard/ai-keys.js';
+            setInterval(() => {
+                const cb = document.getElementById('aiAutoMode');
+                if (cb && cb.checked) runAiAnalysis(false);
+            }, 30000);
         });
 
         // Send a drive/mode command to the robot via the backend queue.

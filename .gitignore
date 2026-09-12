@@ -14,3 +14,6 @@ build/
 
 # Local server data (robot telemetry/inspection JSON files)
 Dashboard/data/
+
+# API keys — NEVER commit
+Dashboard/ai-keys.js
