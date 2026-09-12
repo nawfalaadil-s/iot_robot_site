@@ -65,7 +65,11 @@ const char* password = "robo@123";            // Your WiFi password
 // under your Wi-Fi adapter). The PC and the robot must be on the SAME WiFi.
 // Use http:// (not https) and NO trailing slash. If Windows Firewall asks,
 // allow Node.js on private networks (or open TCP port 3000).
-const char* DASHBOARD_URL = "http://192.168.29.33:3000";
+// PC WiFi IP: run `ipconfig` on the PC and copy the IPv4 Address here.
+// (If the dashboard stops receiving data after a router/hotspot change,
+//  this is the line to update - the PC's IP changed from 192.168.29.33 to
+//  10.59.134.194 on the new network.)
+const char* DASHBOARD_URL = "http://10.59.134.194:3000";
 
 // Hosted (Netlify) alternative:
 // const char* DASHBOARD_URL = "https://iot-car.netlify.app";
