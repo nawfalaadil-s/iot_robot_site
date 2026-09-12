@@ -1202,6 +1202,7 @@ void loop() {
   }
   if (uid != "") {
     Serial.println("[RFID] Card: " + uid);
+    tone(BUZZER_PIN, 1500, 120);   // audible detection beep — proves the antenna read a card
     
     int machineIndex = identifyMachine(uid);
     if (machineIndex == -1) {
