@@ -886,7 +886,7 @@
             }
         }
 
-        // Poll live telemetry every 3 s (robot posts every 3 s)
+        // Poll live telemetry every 1 s (robot posts every 1 s)
         async function pollLive() {
             if (simMode) return;
             try {
@@ -928,7 +928,7 @@
                 }
             } catch (err) {
                 liveFailures++;
-                if (liveFailures >= 3 && !simStarted) {
+                if (liveFailures >= 8 && !simStarted) {
                     simMode = true;
                     simStarted = true;
                     addLog('Backend unreachable - switched to DEMO simulation mode', 'warning');
@@ -991,8 +991,8 @@
             addLog('Machine learning models loaded', 'ai');
             addLog('Connecting to robot backend (real-time)...', 'info');
             
-            setInterval(pollLive, 3000);
-            setInterval(pollInspections, 6000);
+            setInterval(pollLive, 1000);        // near-real-time: robot posts every 1 s
+            setInterval(pollInspections, 5000);
             pollLive();
             pollInspections();
 

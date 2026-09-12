@@ -148,6 +148,7 @@ Machine machines[3] = {
 
 Machine* currentMachine = nullptr;
 int lastDetectedMachineIndex = -1;
+unsigned long lastInspectionEndMs[3] = {0, 0, 0};  // per-machine cooldown: prevents endless re-inspection while parked on a card
 
 // Motor Control
 int currentSpeedLeft = 0;
@@ -161,8 +162,8 @@ unsigned long lastSensorRead = 0;
 unsigned long lastObstacleCheck = 0;
 unsigned long inspectionStartTime = 0;
 
-const unsigned long IOT_UPDATE_INTERVAL = 3000;
-const unsigned long SENSOR_READ_INTERVAL = 500;
+const unsigned long IOT_UPDATE_INTERVAL = 1000;    // 1 s posts → near-real-time dashboard
+const unsigned long SENSOR_READ_INTERVAL = 2000;   // DHT11 needs >= 1 s between reads (500 ms caused NaN/0 spikes)
 const unsigned long OBSTACLE_CHECK_INTERVAL = 200;
 const unsigned long INSPECTION_DURATION = 15000;
 
@@ -410,16 +411,16 @@ void readAllSensors() {
   
   lastSensorRead = millis();
   
-  currentReading.temperature = dht.readTemperature();
-  currentReading.humidity = dht.readHumidity();
+  float dhtTemp = dht.readTemperature();
+  float dhtHum  = dht.readHumidity();
+  if (!isnan(dhtTemp)) currentReading.temperature = dhtTemp;   // keep last good value on read failure
+  if (!isnan(dhtHum))  currentReading.humidity  = dhtHum;
   currentReading.distance = readDistance();
   currentReading.leftIR = digitalRead(LEFT_IR);
   currentReading.rightIR = digitalRead(RIGHT_IR);
   currentReading.gasLevel = analogRead(MQ135_PIN);
   currentReading.timestamp = millis();
   
-  if (isnan(currentReading.temperature)) currentReading.temperature = 0;
-  if (isnan(currentReading.humidity)) currentReading.humidity = 0;
   if (currentReading.distance < 0) currentReading.distance = 0;
 
   // Diagnostic: distance value every 5 s (same value the dashboard receives)
@@ -807,22 +808,28 @@ void executeCommand(char cmd) {
   }
 }
 
-// Poll the dashboard backend for queued commands (rate-limited to 500 ms)
+// Poll the dashboard backend for queued commands. Normally every 500 ms, but
+// backs off to 5 s when the server is unreachable so the blocking HTTP GET
+// (which pauses the software PWM) can't make the motors stutter.
 void pollCloudCommands() {
   static unsigned long lastCmdPoll = 0;
+  static unsigned long pollInterval = 500;
+  static int consecutiveFails = 0;
   if (WiFi.status() != WL_CONNECTED) return;
-  if (millis() - lastCmdPoll < 500) return;
+  if (millis() - lastCmdPoll < pollInterval) return;
   lastCmdPoll = millis();
 
   HTTPClient http;
   http.begin(commandEndpoint());
-  http.setConnectTimeout(2000);
-  http.setTimeout(3000);
+  http.setConnectTimeout(1000);
+  http.setTimeout(2000);
   esp_task_wdt_reset();           // feed WDT around the blocking GET
   int httpCode = http.GET();
   esp_task_wdt_reset();
 
   if (httpCode == 200) {
+    pollInterval = 500;
+    consecutiveFails = 0;
     String body = http.getString();
     StaticJsonDocument<384> doc;
     if (deserializeJson(doc, body) == DeserializationError::Ok && doc["ok"].as<bool>()) {
@@ -832,6 +839,9 @@ void pollCloudCommands() {
         if (c && c[0]) executeCommand(toupper(c[0]));
       }
     }
+  } else {
+    consecutiveFails++;
+    if (consecutiveFails >= 2) pollInterval = 5000;   // server down: stop stuttering the motors
   }
   http.end();
 }
@@ -1066,9 +1076,11 @@ void loop() {
       machineIndex = identifyMachine(uid);
     }
     
-    if (machineIndex >= 0 && machineIndex != lastDetectedMachineIndex) {
+    if (machineIndex >= 0 && machineIndex != lastDetectedMachineIndex
+        && millis() - lastInspectionEndMs[machineIndex] > 30000) {  // 30 s cooldown per machine
       currentMachine = &machines[machineIndex];
       lastDetectedMachineIndex = machineIndex;
+      lastInspectionEndMs[machineIndex] = millis();
       Serial.println("[SYSTEM] Identified: " + currentMachine->name);
       if (!inspectionActive) {
         startInspection(currentMachine);
