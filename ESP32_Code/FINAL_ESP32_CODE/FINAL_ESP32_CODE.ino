@@ -387,11 +387,15 @@ void ultrasonicSelfTest() {
     Serial.println("          Check: VCC->5V, GND->GND (measure 5V at the sensor with a multimeter),");
     Serial.println("          and that nothing covers the two silver cans.");
     usTrig = TRIG_PIN; usEcho = ECHO_PIN;
+    pinMode(usTrig, OUTPUT); pinMode(usEcho, INPUT);   // restore correct live pin modes!
   } else if (bestIdx == 1) {
     usTrig = test[1][0]; usEcho = test[1][1];
+    pinMode(usTrig, OUTPUT); pinMode(usEcho, INPUT);   // restore correct live pin modes!
     Serial.println("[HC-SR04] ✔ Your Trig/Echo wires are SWAPPED — no problem!");
     Serial.println("          Firmware auto-switched to the working wiring (Test B). Distance now works.");
   } else {
+    usTrig = TRIG_PIN; usEcho = ECHO_PIN;
+    pinMode(usTrig, OUTPUT); pinMode(usEcho, INPUT);   // restore correct live pin modes!
     Serial.println("[HC-SR04] ✔ Wiring OK (Test A) — normal operation.");
   }
 }
