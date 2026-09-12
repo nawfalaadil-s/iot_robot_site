@@ -1105,6 +1105,29 @@ void setup() {
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("[WIFI] Connected!");
+
+    // POST-WIFI ultrasonic re-check: the boot self-test runs while the WiFi
+    // radio is still OFF. If Test A passed but this is 0/5, the WiFi TX bursts
+    // (or the shared 5V rail sagging under them) are killing the sensor.
+    // That is a POWER problem, not a wiring problem.
+    int postWifiHits = 0;
+    for (int i = 0; i < 5; i++) {
+      digitalWrite(usTrig, LOW); delayMicroseconds(2);
+      digitalWrite(usTrig, HIGH); delayMicroseconds(10);
+      digitalWrite(usTrig, LOW);
+      if (pulseIn(usEcho, HIGH, 30000) > 0) postWifiHits++;
+      esp_task_wdt_reset();
+      delay(60);
+    }
+    Serial.print("[HC-SR04] POST-WIFI echo check: ");
+    Serial.print(postWifiHits);
+    Serial.println("/5");
+    if (postWifiHits == 0) {
+      Serial.println("[HC-SR04] ⚠ Sensor dies AFTER WiFi connects -> 5V rail sags during WiFi TX.");
+      Serial.println("          Fix power: motors on their OWN battery, short/thick wires, 470-1000uF capacitor on 5V rail.");
+    } else {
+      Serial.println("[HC-SR04] ✔ Still echoing after WiFi - power rail is fine.");
+    }
     Serial.println("[WIFI] IP: " + WiFi.localIP().toString());
     Serial.println("[WIFI] Dashboard: " + String(DASHBOARD_URL));
     
