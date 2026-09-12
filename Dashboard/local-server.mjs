@@ -30,6 +30,7 @@ const DATA_DIR = path.join(__dirname, 'data');
 const LIVE_FILE = path.join(DATA_DIR, 'live-latest.json');
 const INSPECTIONS_DIR = path.join(DATA_DIR, 'inspections');
 const INDEX_FILE = path.join(DATA_DIR, 'inspections-index.json');
+const COMMANDS_FILE = path.join(DATA_DIR, 'commands-pending.json');
 const MAX_HISTORY = 200;                // same cap as inspection.mjs
 
 for (const dir of [DATA_DIR, INSPECTIONS_DIR]) {
@@ -141,6 +142,38 @@ function handleInspection(req, res, body, url) {
 }
 
 // ==========================================================================
+// API: /api/command  (WiFi robot control — replaces the Bluetooth link)
+//   POST {command:"F"}  dashboard queues a command for the robot
+//   GET                 robot drains the queue → { ok:true, commands:["F","S"] }
+// ==========================================================================
+
+function handleCommand(req, res, body) {
+  if (req.method === 'POST') {
+    try {
+      const data = JSON.parse(body || '{}');
+      const cmd = String(data.command || '').trim().toUpperCase().charAt(0);
+      if (!cmd) return json(res, { ok: false, error: 'Missing command' }, 400);
+      const pending = readJson(COMMANDS_FILE, []);
+      pending.push(cmd);
+      while (pending.length > 10) pending.shift();   // never queue more than 10
+      writeJson(COMMANDS_FILE, pending);
+      console.log(`[command] queued ${cmd} (${pending.length} pending)`);
+      return json(res, { ok: true, queued: pending.length });
+    } catch (err) {
+      return json(res, { ok: false, error: String(err) }, 400);
+    }
+  }
+
+  if (req.method === 'GET') {
+    const pending = readJson(COMMANDS_FILE, []);
+    if (pending.length) writeJson(COMMANDS_FILE, []);   // drain: robot consumed them
+    return json(res, { ok: true, commands: pending });
+  }
+
+  return json(res, { ok: false, error: 'Method not allowed' }, 405);
+}
+
+// ==========================================================================
 // Static files (the dashboard)
 // ==========================================================================
 
@@ -194,12 +227,26 @@ const server = http.createServer(async (req, res) => {
   try {
     if (p === '/api/live') return handleLive(req, res, req.method === 'POST' ? await readBody(req) : '');
     if (p === '/api/inspection') return handleInspection(req, res, req.method === 'POST' ? await readBody(req) : '', url);
+    if (p === '/api/command') return handleCommand(req, res, req.method === 'POST' ? await readBody(req) : '');
     if (p.startsWith('/api/')) return json(res, { ok: false, error: 'Unknown endpoint' }, 404);
     return serveStatic(res, p);
   } catch (err) {
     console.error('[server] error:', err);
     return json(res, { ok: false, error: String(err) }, 500);
   }
+});
+
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.log('========================================================');
+    console.log(' ℹ️  Port 3000 is already in use — the server is ALREADY RUNNING.');
+    console.log('    Just open http://localhost:3000 in your browser. Nothing else to do.');
+    console.log('    (To restart it: close the other server window first, then run this again.)');
+    console.log('========================================================');
+    process.exit(0);
+  }
+  console.error('[server] error:', err);
+  process.exit(1);
 });
 
 server.listen(PORT, HOST, async () => {

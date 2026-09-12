@@ -26,10 +26,21 @@
  * Tested: ESP32 Arduino Core 3.x
  * =========================================================================
  */
+
+// ---- Bluetooth on/off (MUST be defined BEFORE the includes) ----
+// Classic Bluetooth + WiFi together exceed the ESP32's RAM: free heap
+// collapses to ~15 KB, HTTP silently fails, and the chip randomly crashes
+// (this is why Bluetooth pairing and dashboard data kept failing).
+// Robot control now comes from the dashboard over WiFi (/api/command).
+// Set to 1 only if you accept the memory risk again.
+#define ENABLE_BLUETOOTH 0
+
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#if ENABLE_BLUETOOTH
 #include <BluetoothSerial.h>
+#endif
 #include <DHT.h>
 #include <SPI.h>
 #include <MFRC522.h>
@@ -62,8 +73,9 @@ const char* DASHBOARD_URL = "http://192.168.29.33:3000";
 // Backend endpoints (Netlify Functions - same origin as the dashboard)
 String inspectionEndpoint() { return String(DASHBOARD_URL) + "/api/inspection"; }
 String liveEndpoint()       { return String(DASHBOARD_URL) + "/api/live"; }
+String commandEndpoint()    { return String(DASHBOARD_URL) + "/api/command"; }
 
-// Bluetooth Name
+// Bluetooth Name (only used when ENABLE_BLUETOOTH = 1)
 const char* BT_NAME = "ESP32_INDUSTRIAL_ROBOT";
 
 // Time & Location
@@ -114,7 +126,9 @@ const char* hostname = "industrial-robot";
 
 DHT dht(DHTPIN, DHTTYPE);
 MFRC522 rfid(SS_PIN, RST_PIN);
+#if ENABLE_BLUETOOTH
 BluetoothSerial SerialBT;
+#endif
 
 // (Enums & structs moved to the robot_types.h tab — do not redefine here)
 
@@ -707,6 +721,7 @@ String getModeString() {
 // 🎮 BLUETOOTH CONTROL
 // =========================================================================
 
+#if ENABLE_BLUETOOTH
 void handleBluetooth() {
   if (!SerialBT.available()) return;
   
@@ -735,6 +750,67 @@ void handleBluetooth() {
     case '3': currentSpeed = SPEED_FAST; SerialBT.println("Speed: FAST"); break;
     default: SerialBT.println("Unknown command"); break;
   }
+}
+#endif
+
+// =========================================================================
+// 🎮 WIFI COMMAND CONTROL (replaces Bluetooth — frees ~80-100 KB of RAM)
+// The robot polls the local server every 500 ms for queued commands.
+// Same command letters as before: F/B/L/R/S, A/M, 1/2/3, I, X.
+// =========================================================================
+
+// Execute one command letter (shared by WiFi and, if enabled, Bluetooth)
+void executeCommand(char cmd) {
+  Serial.println("[CMD] " + String(cmd));
+  switch (cmd) {
+    case 'F': currentMode = MODE_MANUAL; moveForward(currentSpeed); break;
+    case 'B': currentMode = MODE_MANUAL; moveBackward(currentSpeed); break;
+    case 'L': currentMode = MODE_MANUAL; turnLeft(currentSpeed); break;
+    case 'R': currentMode = MODE_MANUAL; turnRight(currentSpeed); break;
+    case 'S': stopMotors(); break;
+    case 'A': currentMode = MODE_AUTO_LINE_FOLLOW; break;
+    case 'M': stopMotors(); inspectionActive = false; inspectionMachine = nullptr; pendingToneAt = 0; currentMode = MODE_MANUAL; break;
+    case 'I':
+      if (currentMachine && !inspectionActive) {
+        startInspection(currentMachine);
+        currentMode = MODE_INSPECTION;
+      }
+      break;
+    case 'X': stopMotors(); inspectionActive = false; inspectionMachine = nullptr; pendingToneAt = 0; currentMode = MODE_IDLE; Serial.println("[CMD] EMERGENCY STOP"); break;
+    case '1': currentSpeed = SPEED_SLOW; Serial.println("[CMD] Speed: SLOW"); break;
+    case '2': currentSpeed = SPEED_MEDIUM; Serial.println("[CMD] Speed: MEDIUM"); break;
+    case '3': currentSpeed = SPEED_FAST; Serial.println("[CMD] Speed: FAST"); break;
+    default: break;
+  }
+}
+
+// Poll the dashboard backend for queued commands (rate-limited to 500 ms)
+void pollCloudCommands() {
+  static unsigned long lastCmdPoll = 0;
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (millis() - lastCmdPoll < 500) return;
+  lastCmdPoll = millis();
+
+  HTTPClient http;
+  http.begin(commandEndpoint());
+  http.setConnectTimeout(2000);
+  http.setTimeout(3000);
+  esp_task_wdt_reset();           // feed WDT around the blocking GET
+  int httpCode = http.GET();
+  esp_task_wdt_reset();
+
+  if (httpCode == 200) {
+    String body = http.getString();
+    StaticJsonDocument<384> doc;
+    if (deserializeJson(doc, body) == DeserializationError::Ok && doc["ok"].as<bool>()) {
+      JsonArray cmds = doc["commands"].as<JsonArray>();
+      for (JsonVariant v : cmds) {
+        const char* c = v.as<const char*>();
+        if (c && c[0]) executeCommand(toupper(c[0]));
+      }
+    }
+  }
+  http.end();
 }
 
 // =========================================================================
@@ -890,10 +966,14 @@ void setup() {
     Serial.println("[WIFI] Failed! Running offline");
   }
   
+#if ENABLE_BLUETOOTH
   // Bluetooth
   if (SerialBT.begin(BT_NAME)) {
     Serial.println("[BT] Started: " + String(BT_NAME));
   }
+#else
+  Serial.println("[CTRL] WiFi command channel ready (dashboard buttons -> /api/command)");
+#endif
   
   // Startup
   blinkLED(5);
@@ -932,7 +1012,10 @@ void loop() {
   }
 
   readAllSensors();        // rate-limited internally (500 ms)
+  pollCloudCommands();     // WiFi control — drains the dashboard command queue
+#if ENABLE_BLUETOOTH
   handleBluetooth();
+#endif
   
   // RFID Detection (rate-limited to every 100 ms — loop now runs at ~1 kHz)
   static unsigned long lastRFIDCheck = 0;

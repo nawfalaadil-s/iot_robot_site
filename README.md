@@ -104,15 +104,22 @@ Dashboard ──GET /api/inspection (every 6 s)──► charts, health, AI aler
 - Falls back to **demo simulation** if the backend is unreachable
 - Inspections also persist to the robot's SD card independent of the cloud
 
-## 🎮 Bluetooth Commands (device: `ESP32_INDUSTRIAL_ROBOT`)
+## 🎮 Robot Commands — from the dashboard (WiFi control)
 
-| Cmd | Action | Cmd | Action |
-|-----|--------|-----|--------|
-| F | Forward (full speed) | A | Autonomous mode ON |
-| B | Backward | M | Manual mode |
-| L / R | Turn left / right | 1 / 2 / 3 | 50% / 75% / 100% speed |
-| S | Stop | I | Force inspection |
-| X | 🛑 Emergency stop | | |
+The dashboard's **🎮 Manual Control** section sends commands to the robot over
+WiFi (the robot polls `GET /api/command` every 500 ms). No Bluetooth needed —
+this also freed ~80 KB of RAM that Classic Bluetooth was eating.
+
+| Button | Command | Button | Command |
+|--------|---------|--------|---------|
+| ⬆ Forward / ⬇ Back / ⬅ Left / ➡ Right | F / B / L / R | 🤖 Auto / 🕹 Manual | A / M |
+| ■ Stop | S | 1 / 2 / 3 | 50% / 75% / 100% speed |
+| 🛑 E-STOP | X | 🔍 Inspect | I (needs an RFID machine nearby) |
+
+> Classic Bluetooth is compiled out by default (`ENABLE_BLUETOOTH 0` in the
+> `.ino`, at the top) because BT + WiFi together starved the ESP32's RAM
+> (~15 KB free → HTTP failed + random crashes). Flip it to `1` to re-enable,
+> but expect the memory problems to return.
 
 ## ✅ ESP32 libraries (Core 3.x)
 `DHT sensor library`, `MFRC522`, `ArduinoJson`. Board: **ESP32 Dev Module**, Serial **115200**.
